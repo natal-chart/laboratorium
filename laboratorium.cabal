@@ -33,9 +33,16 @@ library
 
 executable laboratorium
   main-is:             Main.hs
+  other-modules: TransitCharts
   -- other-extensions:
   build-depends:
     base
-    , laboratorium
+    ,swiss-ephemeris
+    ,time
+    ,lens
+    ,Chart
+    ,colour
+    ,Chart-diagrams
+   , laboratorium
   -- hs-source-dirs:
   default-language:    Haskell2010
