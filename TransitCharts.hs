@@ -12,7 +12,10 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Traversable (forM)
 
 main :: IO ()
-main = traverse_ transitChart natalPlanets 
+main =
+  traverse_ transitChart transited
+  where
+    transited = filter ((==) Uranus . fst) natalPlanets
 
 transitChart :: Ephemeris -> IO ()
 transitChart natalEphe@(transited, natalPositions) =  do
@@ -21,23 +24,27 @@ transitChart natalEphe@(transited, natalPositions) =  do
       transitingPositions transiting
 
   toFile def ("charts/" <> show transited <> "_transits.svg") $ do
-    layoutlr_title .= "Transits to " <> show transited
+    layout_title .= "Transits to " <> show transited
     -- plot the positions of all planets for all year
     forM_ transitingPositions $ \(transiting, ephemeris) -> do
-      plotLeft (line (show transiting) [ephemeris])
+      plot (line (show transiting) [ephemeris])
     -- plot the original natal position line
-    plotLeft (line (show transited) [natalPositions])
+    plot (line (show transited) [natalPositions])
     -- plot the aspect "bands"
-    plotRight (fbetween "Conjunction" purple (conjunctions natalEphe))
-    plotRight (fbetween "Sextile" yellow (sextiles natalEphe))
-    plotRight (fbetween "Square" blue (squares natalEphe))
-    plotRight (fbetween "Trine" green (trines natalEphe))
-    plotRight (fbetween "Opposition" red (oppositions natalEphe))
+    plot (fbetween "Conjunction" purple (conjunctions Separating natalEphe))
+    plot (fbetween "SextileA" yellow (sextiles Applying natalEphe))
+    plot (fbetween "SextileS" yellow (sextiles Separating natalEphe))
+    plot (fbetween "SquareA" blue (squares Applying natalEphe))
+    plot (fbetween "SquareS" blue (squares Separating natalEphe))
+    plot (fbetween "TrineA" green (trines Applying natalEphe))
+    plot (fbetween "TrineS" green (trines Separating natalEphe))
+    plot (fbetween "OppositionA" red (oppositions Applying natalEphe))
+    plot (fbetween "OppositionS" red (oppositions Separating natalEphe))
 
 fbetween :: String
   -> Colour Double
   -> [(UTCTime, (Double, Double))]
-  -> EC (LayoutLR UTCTime Double Double) (PlotFillBetween UTCTime Double)
+  -> EC (Layout UTCTime Double) (PlotFillBetween UTCTime Double)
 fbetween label color vals = liftEC $ do
   plot_fillbetween_style .= solidFillStyle (withOpacity color 0.2)
   plot_fillbetween_values .= vals
@@ -48,6 +55,10 @@ fbetween label color vals = liftEC $ do
 -- body through universal time
 type EclipticPoint = (UTCTime, Double)
 type Ephemeris = (Planet, [EclipticPoint])
+data AspectPhase = Applying | Separating
+
+defaultOrb :: Double
+defaultOrb = 1.0
 
 -- | Get all days in the current year, as @JulianTime@s
 currentYearDays :: [JulianTime]
@@ -113,15 +124,18 @@ julianToUTC jd =
     day = fromGregorian (fromIntegral y) m d
     dt = picosecondsToDiffTime $ round $ h * picosecondsInHour
 
-aspectBand ::  Double -> Ephemeris -> [(UTCTime, (Double, Double))]
-aspectBand aspectAngle (planet, positions) =
+aspectBand ::  Double -> AspectPhase -> Ephemeris -> [(UTCTime, (Double, Double))]
+aspectBand aspectAngle aspectPhase (planet, positions) =
   map mkBand positions
   where
+    orb = defaultOrb
+    angle Separating a = toLongitude . (+ aspectAngle) $ a
+    angle Applying a = toLongitude . (-) aspectAngle $ a
     mkBand (t,p) =
       let
-        before = toLongitude . (+ aspectAngle) $ p
-        after = toLongitude . (-) aspectAngle $ p
-      in (t, (after, before))
+        before = subtract orb $ angle aspectPhase p
+        after  = (+ orb) $ angle aspectPhase p
+      in (t, (before, after))
 
 
 conjunctions = aspectBand 0.0
