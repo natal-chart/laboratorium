@@ -9,22 +9,39 @@ import Data.Maybe (catMaybes)
 import Graphics.Rendering.Chart.Easy
 import Graphics.Rendering.Chart.Backend.Diagrams
 import Control.Monad.IO.Class (liftIO)
+import Data.Traversable (forM)
 
 main :: IO ()
-main = 
-  transitChart Mercury
+main = traverse_ transitChart natalPlanets 
 
-transitChart :: Planet -> IO ()
-transitChart planet =  do
-  (_p, ephemeris) <- transitingPositions planet
-  toFile def ("charts/" <> show planet <> "_transits.svg") $ do
-    layout_title .= "Transiting " <> show planet
-    -- plot the positions of the given planet for all year
-    plot (line (show planet) [ephemeris])
+transitChart :: Ephemeris -> IO ()
+transitChart natalEphe@(transited, natalPositions) =  do
+  transitingPositions <-
+    forM (map fst natalPlanets) $ \transiting -> do
+      transitingPositions transiting
+
+  toFile def ("charts/" <> show transited <> "_transits.svg") $ do
+    layoutlr_title .= "Transits to " <> show transited
+    -- plot the positions of all planets for all year
+    forM_ transitingPositions $ \(transiting, ephemeris) -> do
+      plotLeft (line (show transiting) [ephemeris])
     -- plot the original natal position line
-    forM_ natalPositions $ \(natalPlanet, positions) -> do
-      plot (line (show natalPlanet) [positions])
-    -- TODO: plot the different aspect "bands"
+    plotLeft (line (show transited) [natalPositions])
+    -- plot the aspect "bands"
+    plotRight (fbetween "Conjunction" purple (conjunctions natalEphe))
+    plotRight (fbetween "Sextile" yellow (sextiles natalEphe))
+    plotRight (fbetween "Square" blue (squares natalEphe))
+    plotRight (fbetween "Trine" green (trines natalEphe))
+    plotRight (fbetween "Opposition" red (oppositions natalEphe))
+
+fbetween :: String
+  -> Colour Double
+  -> [(UTCTime, (Double, Double))]
+  -> EC (LayoutLR UTCTime Double Double) (PlotFillBetween UTCTime Double)
+fbetween label color vals = liftEC $ do
+  plot_fillbetween_style .= solidFillStyle (withOpacity color 0.2)
+  plot_fillbetween_values .= vals
+  plot_fillbetween_title  .= label
 
 
 -- | handy type alias to signify the positions of a
@@ -54,8 +71,8 @@ transitingPositions p = do
         Right EclipticPosition{lng} -> pure $ Just (julianToUTC t,lng)
 
 -- | Natal positions for a single person
-natalPositions :: [Ephemeris]
-natalPositions =
+natalPlanets :: [Ephemeris]
+natalPlanets =
   [
     (Sun, allYear 286.90)
   , (Moon, allYear 279.38)
@@ -96,21 +113,22 @@ julianToUTC jd =
     day = fromGregorian (fromIntegral y) m d
     dt = picosecondsToDiffTime $ round $ h * picosecondsInHour
 
-aspectBand :: Double -> Ephemeris -> (Ephemeris, Ephemeris)
-aspectBand aspectAngle (planet, angles) =
-  (
-    (planet, before),
-    (planet, after)
-  )
+aspectBand ::  Double -> Ephemeris -> [(UTCTime, (Double, Double))]
+aspectBand aspectAngle (planet, positions) =
+  map mkBand positions
   where
-    after = angles & traverse . _2 %~ toLongitude . (+ aspectAngle)
-    before = angles & traverse . _2 %~ toLongitude . (-) aspectAngle
+    mkBand (t,p) =
+      let
+        before = toLongitude . (+ aspectAngle) $ p
+        after = toLongitude . (-) aspectAngle $ p
+      in (t, (after, before))
 
-conjunctionBand = aspectBand 0.0
-sextileBand = aspectBand 60.0
-squareBand = aspectBand 90.0
-trineBand = aspectBand 120.0
-oppositionBand = aspectBand 180.0
+
+conjunctions = aspectBand 0.0
+sextiles = aspectBand 60.0
+squares = aspectBand 90.0
+trines = aspectBand 120.0
+oppositions = aspectBand 180.0
 
 
 toLongitude :: Double -> Double
