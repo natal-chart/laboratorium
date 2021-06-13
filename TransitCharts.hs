@@ -11,11 +11,23 @@ import Graphics.Rendering.Chart.Backend.Diagrams
 import Control.Monad.IO.Class (liftIO)
 import Data.Traversable (forM)
 
+type EclipticPoint = (UTCTime, Double)
+type Ephemeris = (Planet, [EclipticPoint])
+data AspectPhase = Applying | Separating
+data Line = Solid | Dotted
+
+-- | Default orb before and after a given aspect. By default,
+-- only 1 degree (yielding a 2 degree "band" around the aspect
+-- angle.)
+defaultOrb :: Double
+defaultOrb = 1.0
+
+
 main :: IO ()
 main =
   traverse_ transitChart transited
   where
-    transited = filter ((==) Uranus . fst) natalPlanets
+    transited = natalPlanets --filter ((==) Uranus . fst) natalPlanets
 
 transitChart :: Ephemeris -> IO ()
 transitChart natalEphe@(transited, natalPositions) =  do
@@ -27,38 +39,77 @@ transitChart natalEphe@(transited, natalPositions) =  do
     layout_title .= "Transits to " <> show transited
     -- plot the positions of all planets for all year
     forM_ transitingPositions $ \(transiting, ephemeris) -> do
-      plot (line (show transiting) [ephemeris])
+      plot $
+        planetLine 
+          (show transiting) 
+          (opaque $ planetColor transiting) 
+          (planetLineStyle transiting)
+          [ephemeris]
     -- plot the original natal position line
-    plot (line (show transited) [natalPositions])
+    plot $
+      planetLine 
+        (show transited) 
+        (opaque green)
+        Dotted
+        [natalPositions]
+    --
     -- plot the aspect "bands"
-    plot (fbetween "Conjunction" purple (conjunctions Separating natalEphe))
-    plot (fbetween "SextileA" yellow (sextiles Applying natalEphe))
-    plot (fbetween "SextileS" yellow (sextiles Separating natalEphe))
-    plot (fbetween "SquareA" blue (squares Applying natalEphe))
-    plot (fbetween "SquareS" blue (squares Separating natalEphe))
-    plot (fbetween "TrineA" green (trines Applying natalEphe))
-    plot (fbetween "TrineS" green (trines Separating natalEphe))
-    plot (fbetween "OppositionA" red (oppositions Applying natalEphe))
-    plot (fbetween "OppositionS" red (oppositions Separating natalEphe))
+    plot (fbetween "Conjunction" darkviolet (conjunctions Separating natalEphe))
+    plot (fbetween "SextileA" darkorange  (sextiles Applying natalEphe))
+    plot (fbetween "SextileS" darkorange (sextiles Separating natalEphe))
+    plot (fbetween "SquareA" darkblue (squares Applying natalEphe))
+    plot (fbetween "SquareS" darkblue (squares Separating natalEphe))
+    plot (fbetween "TrineA" darkgreen (trines Applying natalEphe))
+    plot (fbetween "TrineS" darkgreen (trines Separating natalEphe))
+    plot (fbetween "OppositionA" darkred (oppositions Applying natalEphe))
+    plot (fbetween "OppositionS" darkred (oppositions Separating natalEphe))
 
 fbetween :: String
   -> Colour Double
   -> [(UTCTime, (Double, Double))]
   -> EC (Layout UTCTime Double) (PlotFillBetween UTCTime Double)
 fbetween label color vals = liftEC $ do
-  plot_fillbetween_style .= solidFillStyle (withOpacity color 0.2)
+  plot_fillbetween_style .= solidFillStyle (withOpacity color 0.4)
   plot_fillbetween_values .= vals
   plot_fillbetween_title  .= label
 
 
--- | handy type alias to signify the positions of a
--- body through universal time
-type EclipticPoint = (UTCTime, Double)
-type Ephemeris = (Planet, [EclipticPoint])
-data AspectPhase = Applying | Separating
+planetLine :: String
+  -> AlphaColour Double
+  -> Line
+  -> [[(x, y)]]
+  -> EC l2 (PlotLines x y)
+planetLine title color lineStyle values = liftEC $ do
+  plot_lines_title .= title
+  plot_lines_values .= values
+  plot_lines_style . line_color .= color 
+  plot_lines_style . line_dashes .= dashes lineStyle
+  where
+    dashes Solid = []
+    dashes Dotted = [1.0, 1.0]
 
-defaultOrb :: Double
-defaultOrb = 1.0
+planetLineStyle :: Planet -> Line
+planetLineStyle Moon = Dotted
+planetLineStyle MeanNode = Dotted
+planetLineStyle _    = Solid
+
+-- | Somewhat characteristic colors for transiting planets.
+-- more ideas at:
+-- https://hackage.haskell.org/package/colour-2.3.5/docs/Data-Colour-Names.html
+planetColor :: Planet -> Colour Double
+planetColor Sun = orange
+planetColor Moon = dimgray
+planetColor Mercury = purple
+planetColor Venus = salmon
+planetColor Mars = red
+planetColor Jupiter = darkviolet 
+planetColor Saturn = darkred
+planetColor Uranus = darkolivegreen 
+planetColor Neptune = darkslateblue 
+planetColor Pluto = deeppink 
+planetColor MeanNode = dimgray 
+planetColor MeanApog = darkorchid 
+planetColor Chiron = firebrick 
 
 -- | Get all days in the current year, as @JulianTime@s
 currentYearDays :: [JulianTime]
