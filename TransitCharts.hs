@@ -95,18 +95,21 @@ data Line = Solid | Dotted
 defaultOrb :: Double
 defaultOrb = 1.0
 
+-- | Default planets to consider for transits.
+defaultPlanets :: [Planet]
+defaultPlanets = [Sun .. Pluto] <> [MeanNode, MeanApog, Chiron]
+
 main :: IO ()
 main = do
   let days = julianDays (fromGregorian 2021 1 1) (fromGregorian 2022 1 1)
-  bday <- iso8601ParseM "1989-06-07T05:30:00Z"
-  transited <- mapM (\p -> natalPositions p bday days) defaultPlanets
+      natalPlanets = defaultPlanets
+  bday <- iso8601ParseM "1989-01-07T05:30:00Z"
+  transited <- traverse (natalPositions bday days) natalPlanets 
   traverse_ (transitChart days) transited
 
 transitChart :: [JulianTime] -> Ephemeris -> IO ()
 transitChart transitRange natalEphe@(transited, natalPositions) = do
-  transits <-
-    forM defaultPlanets $ \transiting -> do
-      transitingPositions transiting transitRange
+  transits <- traverse (transitingPositions transitRange) defaultPlanets
 
   toFile def ("charts/" <> show transited <> "_transits.svg") $ do
     layout_title .= "Transits to " <> show transited
@@ -118,6 +121,7 @@ transitChart transitRange natalEphe@(transited, natalPositions) = do
           (opaque $ planetColor transiting)
           (planetLineStyle transiting)
           [ephemeris]
+    
     -- plot the original natal position line
     plot $
       planetLine
@@ -185,7 +189,7 @@ planetColor MeanNode = dimgray
 planetColor MeanApog = darkorchid
 planetColor Chiron = firebrick
 
--- | Get all days in the current year, as @JulianTime@s
+-- | Get all days in the given range, as @JulianTime@s
 julianDays :: Day -> Day -> [JulianTime]
 julianDays startDay endDay =
   map JulianTime [start, (start + 1.0) .. end]
@@ -193,13 +197,13 @@ julianDays startDay endDay =
     start = unJulianTime . utcToJulian $ UTCTime startDay 0
     end = unJulianTime . utcToJulian $ UTCTime endDay 0
 
-transitingPositions :: Planet -> [JulianTime] -> IO Ephemeris
-transitingPositions p days = do
+transitingPositions :: [JulianTime] -> Planet -> IO Ephemeris
+transitingPositions days p = do
   ephe <- mapM (eclipticEphemeris p) days
   pure (p, catMaybes ephe)
 
-natalPositions :: Planet -> UTCTime -> [JulianTime] -> IO Ephemeris
-natalPositions p bday days = do
+natalPositions :: UTCTime -> [JulianTime] -> Planet -> IO Ephemeris
+natalPositions bday days p = do
   ephe <- eclipticEphemeris p (utcToJulian bday)
   case ephe of
     Nothing -> pure (p, [])
@@ -212,8 +216,27 @@ eclipticEphemeris p t = do
     Left e -> pure Nothing
     Right EclipticPosition {lng} -> pure $ Just (julianToUTC t, lng)
 
-defaultPlanets :: [Planet]
-defaultPlanets = [Sun .. Pluto] <> [MeanNode, MeanApog, Chiron]
+aspectBand :: Double -> AspectPhase -> Ephemeris -> [(UTCTime, (Double, Double))]
+aspectBand aspectAngle aspectPhase (planet, positions) =
+  map mkBand positions
+  where
+    orb = defaultOrb
+    angle Separating a = toLongitude . (+ aspectAngle) $ a
+    angle Applying a = toLongitude . (-) aspectAngle $ a
+    mkBand (t, p) =
+      let before = subtract orb $ angle aspectPhase p
+          after = (+ orb) $ angle aspectPhase p
+       in (t, (before, after))
+
+conjunctions, sextiles, squares, trines, oppositions 
+  :: AspectPhase -> Ephemeris -> [(UTCTime, (Double, Double))]
+
+conjunctions = aspectBand 0.0
+sextiles = aspectBand 60.0
+squares = aspectBand 90.0
+trines = aspectBand 120.0
+oppositions = aspectBand 180.0
+
 
 picosecondsInHour :: Double
 picosecondsInHour = 3600 * 1e12
@@ -233,28 +256,6 @@ julianToUTC jd =
     (y, m, d, h) = gregorianDateTime jd
     day = fromGregorian (fromIntegral y) m d
     dt = picosecondsToDiffTime $ round $ h * picosecondsInHour
-
-aspectBand :: Double -> AspectPhase -> Ephemeris -> [(UTCTime, (Double, Double))]
-aspectBand aspectAngle aspectPhase (planet, positions) =
-  map mkBand positions
-  where
-    orb = defaultOrb
-    angle Separating a = toLongitude . (+ aspectAngle) $ a
-    angle Applying a = toLongitude . (-) aspectAngle $ a
-    mkBand (t, p) =
-      let before = subtract orb $ angle aspectPhase p
-          after = (+ orb) $ angle aspectPhase p
-       in (t, (before, after))
-
-conjunctions = aspectBand 0.0
-
-sextiles = aspectBand 60.0
-
-squares = aspectBand 90.0
-
-trines = aspectBand 120.0
-
-oppositions = aspectBand 180.0
 
 toLongitude :: Double -> Double
 toLongitude e
