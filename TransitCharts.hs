@@ -1,71 +1,92 @@
 {-# LANGUAGE NamedFieldPuns #-}
+
 module TransitCharts (main) where
-import SwissEphemeris
-    ( calculateEclipticPosition,
-      gregorianDateTime,
-      julianDay,
-      EclipticPosition(EclipticPosition, lng),
-      JulianTime(..),
-      Planet(Chiron, Moon, Mercury, Venus, Mars, Jupiter, Saturn, Uranus,
-             Neptune, Sun, Pluto, MeanNode, MeanApog) )
-import Data.Time
-    ( Day,
-      UTCTime(UTCTime),
-      fromGregorian,
-      toGregorian,
-      diffTimeToPicoseconds,
-      picosecondsToDiffTime )
-import Data.Bifunctor (bimap)
-import Control.Lens ( (.=) )
-import Data.Foldable ( forM_, traverse_ )
-import Data.Maybe (catMaybes, fromJust, isJust)
-import Graphics.Rendering.Chart.Easy
-    ( line_color,
-      line_dashes,
-      solidFillStyle,
-      layout_title,
-      plot_fillbetween_style,
-      plot_fillbetween_title,
-      plot_fillbetween_values,
-      plot_lines_style,
-      plot_lines_title,
-      plot_lines_values,
-      Layout,
-      PlotFillBetween,
-      PlotLines,
-      Default(def),
-      AlphaColour,
-      Colour,
-      liftEC,
-      plot,
-      opaque,
-      withOpacity,
-      darkblue,
-      darkgreen,
-      darkolivegreen,
-      darkorange,
-      darkorchid,
-      darkred,
-      darkslateblue,
-      darkviolet,
-      deeppink,
-      dimgray,
-      firebrick,
-      green,
-      orange,
-      purple,
-      red,
-      salmon,
-      EC )
-import Graphics.Rendering.Chart.Backend.Diagrams ( toFile )
+
+import Control.Lens ((.=))
 import Control.Monad.IO.Class (liftIO)
-import Data.Traversable (forM)
+import Data.Bifunctor (bimap)
 import Data.Either (fromRight)
+import Data.Foldable (forM_, traverse_)
+import Data.Maybe (catMaybes, fromJust, isJust)
+import Data.Time
+  ( Day,
+    UTCTime (UTCTime),
+    diffTimeToPicoseconds,
+    fromGregorian,
+    picosecondsToDiffTime,
+    toGregorian,
+  )
 import Data.Time.Format.ISO8601 (iso8601ParseM)
+import Data.Traversable (forM)
+import Graphics.Rendering.Chart.Backend.Diagrams (toFile)
+import Graphics.Rendering.Chart.Easy
+  ( AlphaColour,
+    Colour,
+    Default (def),
+    EC,
+    Layout,
+    PlotFillBetween,
+    PlotLines,
+    darkblue,
+    darkgreen,
+    darkolivegreen,
+    darkorange,
+    darkorchid,
+    darkred,
+    darkslateblue,
+    darkviolet,
+    deeppink,
+    dimgray,
+    firebrick,
+    green,
+    layout_title,
+    liftEC,
+    line_color,
+    line_dashes,
+    opaque,
+    orange,
+    plot,
+    plot_fillbetween_style,
+    plot_fillbetween_title,
+    plot_fillbetween_values,
+    plot_lines_style,
+    plot_lines_title,
+    plot_lines_values,
+    purple,
+    red,
+    salmon,
+    solidFillStyle,
+    withOpacity,
+  )
+import SwissEphemeris
+  ( EclipticPosition (EclipticPosition, lng),
+    JulianTime (..),
+    Planet
+      ( Chiron,
+        Jupiter,
+        Mars,
+        MeanApog,
+        MeanNode,
+        Mercury,
+        Moon,
+        Neptune,
+        Pluto,
+        Saturn,
+        Sun,
+        Uranus,
+        Venus
+      ),
+    calculateEclipticPosition,
+    gregorianDateTime,
+    julianDay,
+  )
 
 type EclipticPoint = (UTCTime, Double)
+
 type Ephemeris = (Planet, [EclipticPoint])
+
 data AspectPhase = Applying | Separating
+
 data Line = Solid | Dotted
 
 -- | Default orb before and after a given aspect. By default,
@@ -73,7 +94,6 @@ data Line = Solid | Dotted
 -- angle.)
 defaultOrb :: Double
 defaultOrb = 1.0
-
 
 main :: IO ()
 main = do
@@ -83,15 +103,15 @@ main = do
   traverse_ (transitChart days) transited
 
 transitChart :: [JulianTime] -> Ephemeris -> IO ()
-transitChart transitRange natalEphe@(transited, natalPositions) =  do
-  transitingPositions <-
+transitChart transitRange natalEphe@(transited, natalPositions) = do
+  transits <-
     forM defaultPlanets $ \transiting -> do
       transitingPositions transiting transitRange
 
   toFile def ("charts/" <> show transited <> "_transits.svg") $ do
     layout_title .= "Transits to " <> show transited
     -- plot the positions of all planets for all year
-    forM_ transitingPositions $ \(transiting, ephemeris) -> do
+    forM_ transits $ \(transiting, ephemeris) -> do
       plot $
         planetLine
           (show transiting)
@@ -108,7 +128,7 @@ transitChart transitRange natalEphe@(transited, natalPositions) =  do
     --
     -- plot the aspect "bands"
     plot (fbetween "Conjunction" darkviolet (conjunctions Separating natalEphe))
-    plot (fbetween "SextileA" darkorange  (sextiles Applying natalEphe))
+    plot (fbetween "SextileA" darkorange (sextiles Applying natalEphe))
     plot (fbetween "SextileS" darkorange (sextiles Separating natalEphe))
     plot (fbetween "SquareA" darkblue (squares Applying natalEphe))
     plot (fbetween "SquareS" darkblue (squares Separating natalEphe))
@@ -117,21 +137,22 @@ transitChart transitRange natalEphe@(transited, natalPositions) =  do
     plot (fbetween "OppositionA" darkred (oppositions Applying natalEphe))
     plot (fbetween "OppositionS" darkred (oppositions Separating natalEphe))
 
-fbetween :: String
-  -> Colour Double
-  -> [(UTCTime, (Double, Double))]
-  -> EC (Layout UTCTime Double) (PlotFillBetween UTCTime Double)
+fbetween ::
+  String ->
+  Colour Double ->
+  [(UTCTime, (Double, Double))] ->
+  EC (Layout UTCTime Double) (PlotFillBetween UTCTime Double)
 fbetween label color vals = liftEC $ do
   plot_fillbetween_style .= solidFillStyle (withOpacity color 0.4)
   plot_fillbetween_values .= vals
-  plot_fillbetween_title  .= label
+  plot_fillbetween_title .= label
 
-
-planetLine :: String
-  -> AlphaColour Double
-  -> Line
-  -> [[(x, y)]]
-  -> EC l2 (PlotLines x y)
+planetLine ::
+  String ->
+  AlphaColour Double ->
+  Line ->
+  [[(x, y)]] ->
+  EC l2 (PlotLines x y)
 planetLine title color lineStyle values = liftEC $ do
   plot_lines_title .= title
   plot_lines_values .= values
@@ -144,7 +165,7 @@ planetLine title color lineStyle values = liftEC $ do
 planetLineStyle :: Planet -> Line
 planetLineStyle Moon = Dotted
 planetLineStyle MeanNode = Dotted
-planetLineStyle _    = Solid
+planetLineStyle _ = Solid
 
 -- | Somewhat characteristic colors for transiting planets.
 -- more ideas at:
@@ -176,7 +197,7 @@ transitingPositions :: Planet -> [JulianTime] -> IO Ephemeris
 transitingPositions p days = do
   ephe <- mapM (eclipticEphemeris p) days
   pure (p, catMaybes ephe)
-  
+
 natalPositions :: Planet -> UTCTime -> [JulianTime] -> IO Ephemeris
 natalPositions p bday days = do
   ephe <- eclipticEphemeris p (utcToJulian bday)
@@ -184,17 +205,15 @@ natalPositions p bday days = do
     Nothing -> pure (p, [])
     Just (_t, pos) -> pure (p, [(julianToUTC d, pos) | d <- days])
 
-
 eclipticEphemeris :: Planet -> JulianTime -> IO (Maybe (UTCTime, Double))
 eclipticEphemeris p t = do
   pos <- calculateEclipticPosition t p
   case pos of
     Left e -> pure Nothing
-    Right EclipticPosition{lng} -> pure $ Just (julianToUTC t,lng)
+    Right EclipticPosition {lng} -> pure $ Just (julianToUTC t, lng)
 
 defaultPlanets :: [Planet]
 defaultPlanets = [Sun .. Pluto] <> [MeanNode, MeanApog, Chiron]
-
 
 picosecondsInHour :: Double
 picosecondsInHour = 3600 * 1e12
@@ -215,30 +234,31 @@ julianToUTC jd =
     day = fromGregorian (fromIntegral y) m d
     dt = picosecondsToDiffTime $ round $ h * picosecondsInHour
 
-aspectBand ::  Double -> AspectPhase -> Ephemeris -> [(UTCTime, (Double, Double))]
+aspectBand :: Double -> AspectPhase -> Ephemeris -> [(UTCTime, (Double, Double))]
 aspectBand aspectAngle aspectPhase (planet, positions) =
   map mkBand positions
   where
     orb = defaultOrb
     angle Separating a = toLongitude . (+ aspectAngle) $ a
     angle Applying a = toLongitude . (-) aspectAngle $ a
-    mkBand (t,p) =
-      let
-        before = subtract orb $ angle aspectPhase p
-        after  = (+ orb) $ angle aspectPhase p
-      in (t, (before, after))
-
+    mkBand (t, p) =
+      let before = subtract orb $ angle aspectPhase p
+          after = (+ orb) $ angle aspectPhase p
+       in (t, (before, after))
 
 conjunctions = aspectBand 0.0
-sextiles = aspectBand 60.0
-squares = aspectBand 90.0
-trines = aspectBand 120.0
-oppositions = aspectBand 180.0
 
+sextiles = aspectBand 60.0
+
+squares = aspectBand 90.0
+
+trines = aspectBand 120.0
+
+oppositions = aspectBand 180.0
 
 toLongitude :: Double -> Double
 toLongitude e
-  | e > 360   = abs $ 360 - e
-  | e == 360  = 0
-  | e < 0     = abs $ 360 + e
+  | e > 360 = abs $ 360 - e
+  | e == 360 = 0
+  | e < 0 = abs $ 360 + e
   | otherwise = e
