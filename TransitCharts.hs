@@ -61,6 +61,7 @@ import Graphics.Rendering.Chart.Easy
 import SwissEphemeris
   ( EclipticPosition (EclipticPosition, lng),
     JulianTime (..),
+    ZodiacSignName(..),
     Planet
       ( Chiron,
         Jupiter,
@@ -104,7 +105,7 @@ main = do
   let days = julianDays (fromGregorian 2021 1 1) (fromGregorian 2022 1 1)
       natalPlanets = [Mars]--defaultPlanets
   bday <- iso8601ParseM "1989-01-07T05:30:00Z"
-  transited <- traverse (natalPositions bday days) natalPlanets 
+  transited <- traverse (natalPositions bday days) natalPlanets
   traverse_ (transitChart days) transited
 
 transitChart :: [JulianTime] -> Ephemeris -> IO ()
@@ -121,7 +122,7 @@ transitChart transitRange natalEphe@(transited, natalPositions) = do
           (opaque $ planetColor transiting)
           (planetLineStyle transiting)
           [ephemeris]
-    
+
     -- plot the original natal position line
     plotLeft $
       planetLine
@@ -129,33 +130,21 @@ transitChart transitRange natalEphe@(transited, natalPositions) = do
         (opaque green)
         Dotted
         [natalPositions]
-    --
-    -- plot the aspect "bands"
-    plotLeft (fbetween "Conjunction" darkviolet (conjunctions Separating natalEphe))
-    plotLeft (fbetween "SextileA" darkorange (sextiles Applying natalEphe))
-    plotLeft (fbetween "SextileS" darkorange (sextiles Separating natalEphe))
-    plotLeft (fbetween "SquareA" darkblue (squares Applying natalEphe))
-    plotLeft (fbetween "SquareS" darkblue (squares Separating natalEphe))
-    plotLeft (fbetween "TrineA" darkgreen (trines Applying natalEphe))
-    plotLeft (fbetween "TrineS" darkgreen (trines Separating natalEphe))
-    plotLeft (fbetween "OppositionA" darkred (oppositions Applying natalEphe))
-    plotLeft (fbetween "OppositionS" darkred (oppositions Separating natalEphe))
-    
-    -- plot the zodiac bands
-    plotRight (fbetween "Aries" lightgray [(julianToUTC t, (0.0, 30.0)) | t <- transitRange])
-    plotRight (fbetween "Taurus" white [(julianToUTC t, (30.0, 60.0)) | t <- transitRange])
-    plotRight (fbetween "Gemini" lightgray [(julianToUTC t, (60.0, 90.0)) | t <- transitRange])
-    plotRight (fbetween "Cancer" white [(julianToUTC t, (90.0, 120.0)) | t <- transitRange])
-    plotRight (fbetween "Leo" lightgray [(julianToUTC t, (120.0, 150.0)) | t <- transitRange])
-    plotRight (fbetween "Virgo" white [(julianToUTC t, (150.0, 180.0)) | t <- transitRange])
-    plotRight (fbetween "Libra" lightgray [(julianToUTC t, (180.0, 210.0)) | t <- transitRange])
-    plotRight (fbetween "Scorpio" white [(julianToUTC t, (210.0, 240.0)) | t <- transitRange])
-    plotRight (fbetween "Sagittarius" lightgray [(julianToUTC t, (240.0, 270.0)) | t <- transitRange])
-    plotRight (fbetween "Capricorn" white [(julianToUTC t, (270.0, 300.0)) | t <- transitRange])
-    plotRight (fbetween "Aquarius" lightgray [(julianToUTC t, (300.0, 330.0)) | t <- transitRange])
-    plotRight (fbetween "Pisces" white [(julianToUTC t, (330.0, 360.0)) | t <- transitRange])
 
-  
+    -- plot the aspect "bands"
+    traverse_ (plotLeft . fbetween "Conjunction" darkviolet) (conjunctions natalEphe)
+    traverse_ (plotLeft . fbetween "Sextile" darkorange) (sextiles natalEphe)
+    traverse_ (plotLeft . fbetween "Square" darkblue) (squares natalEphe)
+    traverse_ (plotLeft . fbetween "Trine" darkgreen) (trines natalEphe)
+    traverse_ (plotLeft . fbetween "Opposition" darkred) (oppositions natalEphe)
+
+    -- plot the zodiac bands
+    let zodiacBands = take 12 $ iterate (bimap (+30) (+30)) (0,30)
+        alternatingColors = concat $ replicate 6 [lightgray, white]
+    forM_ (zip3 [Aries .. Pisces] alternatingColors zodiacBands) $ \(sign, color, band) -> do
+      plotRight (fbetween (show sign) color [(julianToUTC t, band) | t <- transitRange])
+
+
 
 fbetween ::
   String ->
@@ -245,14 +234,37 @@ aspectBand aspectAngle aspectPhase (planet, positions) =
           after = (+ orb) $ angle aspectPhase p
        in [(t, (before, after))]
 
-conjunctions, sextiles, squares, trines, oppositions 
-  :: AspectPhase -> Ephemeris -> [(UTCTime, (Double, Double))]
+-- | Generate all ranges where an aspect can occur. Note that there's multiple,
+-- however many can fit in an ecliptic! Some will be looped around 0/360,
+-- bands that exceed that range are simply clipped (vs. split, which
+-- would be the more sophisticated approach.)
+aspectBands :: Double -> Ephemeris -> [[(UTCTime, (Double, Double))]]
+aspectBands aspectAngle (planet, positions) =
+  --map mkBand positions
+  []
+  where
+    orb = defaultOrb
+    -- how many times this aspect can occur in the ecliptic
+    n = floor $ 360/aspectAngle
+    aspectBand' (t, p) =
+      map (mkBand t) $ take n $ tail $ iterate angleInEcliptic p
+    before a = clipLongitude $ a - orb
+    after  a = clipLongitude $ a + orb
+    mkBand t aspected = (t, (before aspected, after aspected))
+    angleInEcliptic = toLongitude . (+ aspectAngle)
+    clipLongitude a
+      | a > 360 = 360
+      | a < 0 = 0
+      | otherwise = a
 
-conjunctions = aspectBand 0.0
-sextiles = aspectBand 60.0
-squares = aspectBand 90.0
-trines = aspectBand 120.0
-oppositions = aspectBand 180.0
+conjunctions, sextiles, squares, trines, oppositions
+  :: Ephemeris -> [[(UTCTime, (Double, Double))]]
+
+conjunctions = aspectBands 0.0
+sextiles = aspectBands 60.0
+squares = aspectBands 90.0
+trines = aspectBands 120.0
+oppositions = aspectBands 180.0
 
 
 picosecondsInHour :: Double
