@@ -1,5 +1,6 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
+{-# LANGUAGE TupleSections #-}
 module TransitCharts (main) where
 
 import Control.Lens ((.=))
@@ -20,44 +21,6 @@ import Data.Time.Format.ISO8601 (iso8601ParseM)
 import Data.Traversable (forM)
 import Graphics.Rendering.Chart.Backend.Diagrams (toFile)
 import Graphics.Rendering.Chart.Easy
-  ( AlphaColour,
-    Colour,
-    Default (def),
-    EC,
-    Layout,
-    PlotFillBetween,
-    PlotLines,
-    darkblue,
-    darkgreen,
-    darkolivegreen,
-    darkorange,
-    darkorchid,
-    darkred,
-    darkslateblue,
-    darkviolet,
-    deeppink,
-    dimgray,
-    firebrick,
-    green,
-    layout_title,
-    liftEC,
-    line_color,
-    line_dashes,
-    opaque,
-    orange,
-    plot,
-    plot_fillbetween_style,
-    plot_fillbetween_title,
-    plot_fillbetween_values,
-    plot_lines_style,
-    plot_lines_title,
-    plot_lines_values,
-    purple,
-    red,
-    salmon,
-    solidFillStyle,
-    withOpacity, plotLeft, layoutlr_title, plotRight, lightgray, darkgray, white
-  )
 import SwissEphemeris
   ( EclipticPosition (EclipticPosition, lng),
     JulianTime (..),
@@ -90,30 +53,29 @@ data AspectPhase = Applying | Separating
 
 data Line = Solid | Dotted
 
--- | Default orb before and after a given aspect. By default,
--- only 1 degree (yielding a 2 degree "band" around the aspect
--- angle.)
-defaultOrb :: Double
-defaultOrb = 1.0
-
 -- | Default planets to consider for transits.
 defaultPlanets :: [Planet]
 defaultPlanets = [Sun .. Pluto] <> [MeanNode, MeanApog, Chiron]
 
 main :: IO ()
 main = do
+  bday <- iso8601ParseM "1989-01-07T05:30:00Z"
   let days = julianDays (fromGregorian 2021 1 1) (fromGregorian 2022 1 1)
       natalPlanets = [Mars]--defaultPlanets
-  bday <- iso8601ParseM "1989-01-07T05:30:00Z"
-  transited <- traverse (natalPositions bday days) natalPlanets
-  traverse_ (transitChart days) transited
+      julianDay = utcToJulian bday
 
-transitChart :: [JulianTime] -> Ephemeris -> IO ()
-transitChart transitRange natalEphe@(transited, natalPositions) = do
+  transited <- traverse (natalPosition julianDay) natalPlanets
+  traverse_ (transitChart days) (catMaybes transited)
+
+transitChart :: [JulianTime] -> (Planet, EclipticPoint) -> IO ()
+transitChart transitRange (transited, natalEphe@(_t, natalPosition)) = do
   transits <- traverse (transitingPositions transitRange) defaultPlanets
 
   toFile def ("charts/" <> show transited <> "_transits.svg") $ do
     layoutlr_title .= "Transits to " <> show transited
+    -- hide axis guidelines -- too much noise
+    layoutlr_left_axis . laxis_override .= axisGridHide
+    layoutlr_right_axis . laxis_override .= axisGridHide
     -- plot the positions of all planets for all year
     forM_ transits $ \(transiting, ephemeris) -> do
       plotLeft $
@@ -125,18 +87,16 @@ transitChart transitRange natalEphe@(transited, natalPositions) = do
 
     -- plot the original natal position line
     plotLeft $
-      planetLine
+      natalLine
         (show transited)
         (opaque green)
-        Dotted
-        [natalPositions]
+        [natalPosition]
 
     -- plot the aspect "bands"
-    traverse_ (plotLeft . fbetween "Conjunction" darkviolet) (conjunctions natalEphe)
-    traverse_ (plotLeft . fbetween "Sextile" darkorange) (sextiles natalEphe)
-    traverse_ (plotLeft . fbetween "Square" darkblue) (squares natalEphe)
-    traverse_ (plotLeft . fbetween "Trine" darkgreen) (trines natalEphe)
-    traverse_ (plotLeft . fbetween "Opposition" darkred) (oppositions natalEphe)
+    plotLeft $ aspectLine "Sextile" (opaque darkorange) $ sextiles natalEphe
+    plotLeft $ aspectLine "Square" (opaque darkblue) $ squares natalEphe
+    plotLeft $ aspectLine "Trine" (opaque darkgreen) $ trines natalEphe
+    plotLeft $ aspectLine "Opposition" (opaque darkred) [opposition natalEphe]
 
     -- plot the zodiac bands
     let zodiacBands = take 12 $ iterate (bimap (+30) (+30)) (0,30)
@@ -171,6 +131,26 @@ planetLine title color lineStyle values = liftEC $ do
     dashes Solid = []
     dashes Dotted = [1.0, 1.0]
 
+hLine ::
+  [Double] ->
+  String ->
+  AlphaColour Double ->
+  [Double] ->
+  EC l2 (PlotLines x Double)
+hLine dashesPattern title color ys = liftEC $ do
+  plot_lines_title .= title
+  -- inspired by the horizontal line helper:
+  -- https://github.com/timbod7/haskell-chart/blob/8c5a823652ea1b4ec2adbced4a92a8161065ead6/chart/Graphics/Rendering/Chart/Plot/Lines.hs#L86-L92
+  plot_lines_limit_values .= [[(LMin, LValue a), (LMax, LValue a)] | a <- ys]
+  plot_lines_style . line_color .= color
+  plot_lines_style . line_dashes .= dashesPattern
+
+aspectLine, natalLine :: String
+ -> AlphaColour Double -> [Double] -> EC l2 (PlotLines x Double)
+aspectLine = hLine [2.0, 3.0]
+natalLine = hLine [1.0, 1.0]
+
+
 planetLineStyle :: Planet -> Line
 planetLineStyle Moon = Dotted
 planetLineStyle MeanNode = Dotted
@@ -202,69 +182,49 @@ julianDays startDay endDay =
     start = unJulianTime . utcToJulian $ UTCTime startDay 0
     end = unJulianTime . utcToJulian $ UTCTime endDay 0
 
+-- | Get all positions across the given time range for
+-- the given planet.
 transitingPositions :: [JulianTime] -> Planet -> IO Ephemeris
 transitingPositions days p = do
-  ephe <- mapM (eclipticEphemeris p) days
+  ephe <- mapM (`eclipticEphemeris` p) days
   pure (p, catMaybes ephe)
 
-natalPositions :: UTCTime -> [JulianTime] -> Planet -> IO Ephemeris
-natalPositions bday days p = do
-  ephe <- eclipticEphemeris p (utcToJulian bday)
-  case ephe of
-    Nothing -> pure (p, [])
-    Just (_t, pos) -> pure (p, [(julianToUTC d, pos) | d <- days])
+natalPosition :: JulianTime -> Planet -> IO (Maybe (Planet, EclipticPoint))
+natalPosition bday p = do
+  ephe <- eclipticEphemeris bday p
+  pure $ fmap (p,) ephe
 
-eclipticEphemeris :: Planet -> JulianTime -> IO (Maybe (UTCTime, Double))
-eclipticEphemeris p t = do
+-- | Get the single ecliptic "point" (time + longitude)
+-- for the given planet at the given UTC time.
+eclipticEphemeris :: JulianTime -> Planet -> IO (Maybe EclipticPoint)
+eclipticEphemeris t p = do
   pos <- calculateEclipticPosition t p
   case pos of
     Left e -> pure Nothing
     Right EclipticPosition {lng} -> pure $ Just (julianToUTC t, lng)
 
--- TODO: return multiple aspect bands.
-aspectBand :: Double -> AspectPhase -> Ephemeris -> [(UTCTime, (Double, Double))]
-aspectBand aspectAngle aspectPhase (planet, positions) =
-  concatMap mkBand positions
+-- | Generate all crossings where an aspect can occur. Note that there's multiple,
+-- however many can fit in an ecliptic! 
+aspectBands :: Double -> EclipticPoint -> [Double]
+aspectBands aspectAngle (planet, position) =
+  take n $ tail $ iterate angleInEcliptic position
   where
-    orb = defaultOrb
-    angle Separating a = toLongitude . (+ aspectAngle) $ a
-    angle Applying a = toLongitude . (-) aspectAngle $ a
-    mkBand (t, p) =
-      let before = subtract orb $ angle aspectPhase p
-          after = (+ orb) $ angle aspectPhase p
-       in [(t, (before, after))]
-
--- | Generate all ranges where an aspect can occur. Note that there's multiple,
--- however many can fit in an ecliptic! Some will be looped around 0/360,
--- bands that exceed that range are simply clipped (vs. split, which
--- would be the more sophisticated approach.)
-aspectBands :: Double -> Ephemeris -> [[(UTCTime, (Double, Double))]]
-aspectBands aspectAngle (planet, positions) =
-  --map mkBand positions
-  []
-  where
-    orb = defaultOrb
     -- how many times this aspect can occur in the ecliptic
     n = floor $ 360/aspectAngle
-    aspectBand' (t, p) =
-      map (mkBand t) $ take n $ tail $ iterate angleInEcliptic p
-    before a = clipLongitude $ a - orb
-    after  a = clipLongitude $ a + orb
-    mkBand t aspected = (t, (before aspected, after aspected))
     angleInEcliptic = toLongitude . (+ aspectAngle)
-    clipLongitude a
-      | a > 360 = 360
-      | a < 0 = 0
-      | otherwise = a
 
-conjunctions, sextiles, squares, trines, oppositions
-  :: Ephemeris -> [[(UTCTime, (Double, Double))]]
+conjunctions, sextiles, squares, trines 
+  :: EclipticPoint -> [Double]
 
 conjunctions = aspectBands 0.0
 sextiles = aspectBands 60.0
 squares = aspectBands 90.0
 trines = aspectBands 120.0
-oppositions = aspectBands 180.0
+
+-- there's only one opposition: the "other one" is 
+-- just the conjunction.
+opposition :: EclipticPoint -> Double
+opposition = head . aspectBands 180.0
 
 
 picosecondsInHour :: Double
