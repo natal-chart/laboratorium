@@ -61,7 +61,7 @@ main :: IO ()
 main = do
   bday <- iso8601ParseM "1989-01-07T05:30:00Z"
   let days = julianDays (fromGregorian 2021 1 1) (fromGregorian 2022 1 1)
-      natalPlanets = [Mars]--defaultPlanets
+      natalPlanets = [Jupiter]--defaultPlanets
       julianDay = utcToJulian bday
 
   transited <- traverse (natalPosition julianDay) natalPlanets
@@ -76,22 +76,7 @@ transitChart transitRange (transited, natalEphe@(_t, natalPosition)) = do
     -- hide axis guidelines -- too much noise
     layoutlr_left_axis . laxis_override .= axisGridHide
     layoutlr_right_axis . laxis_override .= axisGridHide
-    -- plot the positions of all planets for all year
-    forM_ transits $ \(transiting, ephemeris) -> do
-      plotLeft $
-        planetLine
-          (show transiting)
-          (opaque $ planetColor transiting)
-          (planetLineStyle transiting)
-          [ephemeris]
-
-    -- plot the original natal position line
-    plotLeft $
-      natalLine
-        (show transited)
-        (opaque green)
-        [natalPosition]
-
+    
     -- plot the aspect "bands"
     plotLeft $ aspectLine "Sextile" (opaque darkorange) $ sextiles natalEphe
     plotLeft $ aspectLine "Square" (opaque darkblue) $ squares natalEphe
@@ -104,7 +89,23 @@ transitChart transitRange (transited, natalEphe@(_t, natalPosition)) = do
     forM_ (zip3 [Aries .. Pisces] alternatingColors zodiacBands) $ \(sign, color, band) -> do
       plotRight (fbetween (show sign) color [(julianToUTC t, band) | t <- transitRange])
 
+    -- plot the positions of all planets for all year
+    forM_ transits $ \(transiting, ephemeris) -> do
+      plotLeft $
+        planetLine
+          (show transiting)
+          (opaque $ planetColor transiting)
+          (planetLineStyle transiting)
+          [ephemeris]
 
+    -- plot the original natal position line
+    plotLeft $
+      natalLine
+        ("Natal " <> show transited)
+        (opaque green)
+        [natalPosition]
+
+    
 
 fbetween ::
   String ->
