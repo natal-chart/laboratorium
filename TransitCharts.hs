@@ -44,6 +44,7 @@ import SwissEphemeris
     gregorianDateTime,
     julianDay,
   )
+import qualified Debug.Trace as Debug
 
 type EclipticPoint = (UTCTime, Double)
 
@@ -96,7 +97,7 @@ transitChart transitRange (transited, natalEphe@(_t, natalPosition)) = do
           (show transiting)
           (opaque $ planetColor transiting)
           (planetLineStyle transiting)
-          [ephemeris]
+          ephemeris
 
     -- plot the original natal position line
     plotLeft $
@@ -121,11 +122,13 @@ planetLine ::
   String ->
   AlphaColour Double ->
   Line ->
-  [[(x, y)]] ->
-  EC l2 (PlotLines x y)
+  [(UTCTime, Double)] ->
+  EC l2 (PlotLines UTCTime Double)
 planetLine title color lineStyle values = liftEC $ do
   plot_lines_title .= title
-  plot_lines_values .= values
+  -- split the curve if a segment makes an abrupt jump in two consecutive days
+  -- (no planet moves 100 degrees in a day, so we consider it spurious -- a "loop around")
+  plot_lines_values .= groupWhen (\(t1, x) (t2, y) -> abs (y - x) <= 30) values
   plot_lines_style . line_color .= color
   plot_lines_style . line_dashes .= dashes lineStyle
   where
@@ -253,3 +256,12 @@ toLongitude e
   | e == 360 = 0
   | e < 0 = abs $ 360 + e
   | otherwise = e
+
+-- from: https://gitlab.haskell.org/ghc/ghc/-/issues/1408
+groupWhen :: (a -> a -> Bool) -> [a] -> [[a]]
+groupWhen _ []    = []
+groupWhen _ [a]   = [[a]]
+groupWhen f (a:l) = 
+  if f a (head c) then (a:c):r
+  else [a]:c:r
+  where (c:r) = groupWhen f l
