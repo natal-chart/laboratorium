@@ -21,3 +21,7 @@ cabal new-run laboratorium -- --date "1989-01-07T05:30:00Z" --start "2020-01-01"
 ```
 
 It will output charts in the `charts/` folder, can open them with any SVG viewer.
+
+Here's an example chart:
+
+![image](https://user-images.githubusercontent.com/82133/122154039-2044d280-ce32-11eb-8edb-5d051b2f4a5b.png)
