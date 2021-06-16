@@ -29,6 +29,7 @@ library
     ,Chart
     ,colour
     ,Chart-diagrams
+    ,optparse-applicative
   hs-source-dirs: src
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints
   default-language:    Haskell2010

@@ -1,10 +1,12 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE TupleSections #-}
 
+{-# OPTIONS_GHC -Wno-orphans #-}
+{-# LANGUAGE StandaloneDeriving #-}
 module TransitCharts (main) where
 
 import Data.Foldable (forM_, traverse_)
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, mapMaybe)
 import Data.Time
   ( Day,
     UTCTime (UTCTime),
@@ -21,24 +23,13 @@ import SwissEphemeris
     JulianTime (..),
     ZodiacSignName(..),
     Planet
-      ( Chiron,
-        Jupiter,
-        Mars,
-        MeanApog,
-        MeanNode,
-        Mercury,
-        Moon,
-        Neptune,
-        Pluto,
-        Saturn,
-        Sun,
-        Uranus,
-        Venus
-      ),
+      (..),
     calculateEclipticPosition,
     gregorianDateTime,
     julianDay,
   )
+import Options.Applicative
+import Text.Read (readMaybe)
 
 type EclipticPoint = (UTCTime, Double)
 
@@ -46,16 +37,26 @@ type Ephemeris = (Planet, [EclipticPoint])
 
 data Line = Solid | Dotted
 
+deriving instance Read Planet
+
 -- | Default planets to consider for transits.
 defaultPlanets :: [Planet]
 defaultPlanets = [Sun .. Pluto] <> [MeanNode, MeanApog, Chiron]
 
+data Options = Options
+  { optBirthday :: !UTCTime
+  , optRangeStart :: !Day
+  , optRangeEnd :: !Day
+  , optNatalPlanets :: [Planet]
+  }
+
 main :: IO ()
 main = do
-  bday <- iso8601ParseM "1989-01-07T05:30:00Z"
-  let days = julianDays (fromGregorian 2021 1 1) (fromGregorian 2022 1 1)
-      natalPlanets = [Jupiter]--defaultPlanets
-      julian = utcToJulian bday
+  Options{optBirthday,optRangeStart,optRangeEnd,optNatalPlanets} <-
+    execParser optsParser
+  let days = julianDays optRangeStart optRangeEnd
+      natalPlanets = optNatalPlanets
+      julian = utcToJulian optBirthday 
 
   transited <- traverse (natalPosition julian) natalPlanets
   traverse_ (transitChart days) (catMaybes transited)
@@ -69,7 +70,7 @@ transitChart transitRange (transited, natalEphe@(_t, natalPos)) = do
     -- hide axis guidelines -- too much noise
     layoutlr_left_axis . laxis_override .= axisGridHide
     layoutlr_right_axis . laxis_override .= axisGridHide
-    
+
     -- plot the aspect "bands"
     plotLeft $ aspectLine "Sextile" (opaque darkorange) $ sextiles natalEphe
     plotLeft $ aspectLine "Square" (opaque darkblue) $ squares natalEphe
@@ -98,7 +99,7 @@ transitChart transitRange (transited, natalEphe@(_t, natalPos)) = do
         (opaque green)
         [natalPos]
 
-    
+
 
 fbetween ::
   String ->
@@ -210,7 +211,7 @@ aspectBands aspectAngle (_planet, position) =
     n = floor $ 360/aspectAngle
     angleInEcliptic = toLongitude . (+ aspectAngle)
 
-sextiles, squares, trines 
+sextiles, squares, trines
   :: EclipticPoint -> [Double]
 
 sextiles = aspectBands 60.0
@@ -253,7 +254,43 @@ toLongitude e
 groupWhen :: (a -> a -> Bool) -> [a] -> [[a]]
 groupWhen _ []    = []
 groupWhen _ [a]   = [[a]]
-groupWhen f (a:l) = 
+groupWhen f (a:l) =
   if f a (head c) then (a:c):r
   else [a]:c:r
   where (c:r) = groupWhen f l
+
+---
+--- OPT UTILS
+---
+
+dayReader :: ReadM Day
+dayReader = eitherReader $ \arg ->
+  case iso8601ParseM arg of
+    Nothing -> Left $ "Invalid date: " <> arg
+    Just day -> Right day
+
+datetimeReader :: ReadM UTCTime
+datetimeReader = eitherReader $ \arg ->
+  case iso8601ParseM arg of
+    Nothing -> Left $ "Invalid UTC timestamp: " <> arg
+    Just ts -> Right ts
+
+planetListReader :: ReadM [Planet]
+planetListReader = eitherReader $ \arg ->
+  case mapMaybe readMaybe (words arg) of
+    [] -> Left "No planets could be parsed"
+    ps -> Right ps
+
+optsParser :: ParserInfo Options
+optsParser =
+  info
+    (helper <*> mainOptions)
+    (fullDesc <> progDesc "Plot transit charts for the given natal planets, in the given time range, for a specific birth/event date")
+
+mainOptions :: Parser Options
+mainOptions =
+  Options
+    <$> option datetimeReader   (long "date" <> short 'd')
+    <*> option dayReader        (long "start" <> short 's')
+    <*> option dayReader        (long "end" <> short 'e')
+    <*> option planetListReader (long "planets" <> short 'p' <> help "space-separated list of planets")
