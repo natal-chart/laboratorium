@@ -1,14 +1,12 @@
 {-# LANGUAGE NamedFieldPuns #-}
-
 {-# LANGUAGE TupleSections #-}
+
+{-# OPTIONS_GHC -Wno-orphans #-}
+{-# LANGUAGE StandaloneDeriving #-}
 module TransitCharts (main) where
 
-import Control.Lens ((.=))
-import Control.Monad.IO.Class (liftIO)
-import Data.Bifunctor (bimap)
-import Data.Either (fromRight)
 import Data.Foldable (forM_, traverse_)
-import Data.Maybe (catMaybes, fromJust, isJust)
+import Data.Maybe (catMaybes, mapMaybe)
 import Data.Time
   ( Day,
     UTCTime (UTCTime),
@@ -18,58 +16,53 @@ import Data.Time
     toGregorian,
   )
 import Data.Time.Format.ISO8601 (iso8601ParseM)
-import Data.Traversable (forM)
 import Graphics.Rendering.Chart.Backend.Diagrams (toFile)
-import Graphics.Rendering.Chart.Easy
+import Graphics.Rendering.Chart.Easy hiding (days)
 import SwissEphemeris
   ( EclipticPosition (EclipticPosition, lng),
     JulianTime (..),
     ZodiacSignName(..),
     Planet
-      ( Chiron,
-        Jupiter,
-        Mars,
-        MeanApog,
-        MeanNode,
-        Mercury,
-        Moon,
-        Neptune,
-        Pluto,
-        Saturn,
-        Sun,
-        Uranus,
-        Venus
-      ),
+      (..),
     calculateEclipticPosition,
     gregorianDateTime,
     julianDay,
   )
-import qualified Debug.Trace as Debug
+import Options.Applicative
+import Text.Read (readMaybe)
 
 type EclipticPoint = (UTCTime, Double)
 
 type Ephemeris = (Planet, [EclipticPoint])
 
-data AspectPhase = Applying | Separating
-
 data Line = Solid | Dotted
+
+deriving instance Read Planet
 
 -- | Default planets to consider for transits.
 defaultPlanets :: [Planet]
 defaultPlanets = [Sun .. Pluto] <> [MeanNode, MeanApog, Chiron]
 
+data Options = Options
+  { optBirthday :: !UTCTime
+  , optRangeStart :: !Day
+  , optRangeEnd :: !Day
+  , optNatalPlanets :: [Planet]
+  }
+
 main :: IO ()
 main = do
-  bday <- iso8601ParseM "1989-01-07T05:30:00Z"
-  let days = julianDays (fromGregorian 2021 1 1) (fromGregorian 2022 1 1)
-      natalPlanets = [Jupiter]--defaultPlanets
-      julianDay = utcToJulian bday
+  Options{optBirthday,optRangeStart,optRangeEnd,optNatalPlanets} <-
+    execParser optsParser
+  let days = julianDays optRangeStart optRangeEnd
+      natalPlanets = optNatalPlanets
+      julian = utcToJulian optBirthday 
 
-  transited <- traverse (natalPosition julianDay) natalPlanets
+  transited <- traverse (natalPosition julian) natalPlanets
   traverse_ (transitChart days) (catMaybes transited)
 
 transitChart :: [JulianTime] -> (Planet, EclipticPoint) -> IO ()
-transitChart transitRange (transited, natalEphe@(_t, natalPosition)) = do
+transitChart transitRange (transited, natalEphe@(_t, natalPos)) = do
   transits <- traverse (transitingPositions transitRange) defaultPlanets
 
   toFile def ("charts/" <> show transited <> "_transits.svg") $ do
@@ -77,7 +70,7 @@ transitChart transitRange (transited, natalEphe@(_t, natalPosition)) = do
     -- hide axis guidelines -- too much noise
     layoutlr_left_axis . laxis_override .= axisGridHide
     layoutlr_right_axis . laxis_override .= axisGridHide
-    
+
     -- plot the aspect "bands"
     plotLeft $ aspectLine "Sextile" (opaque darkorange) $ sextiles natalEphe
     plotLeft $ aspectLine "Square" (opaque darkblue) $ squares natalEphe
@@ -104,19 +97,19 @@ transitChart transitRange (transited, natalEphe@(_t, natalPosition)) = do
       natalLine
         ("Natal " <> show transited)
         (opaque green)
-        [natalPosition]
+        [natalPos]
 
-    
+
 
 fbetween ::
   String ->
   Colour Double ->
   [(UTCTime, (Double, Double))] ->
   EC l2 (PlotFillBetween UTCTime Double)
-fbetween label color vals = liftEC $ do
+fbetween title color vals = liftEC $ do
   plot_fillbetween_style .= solidFillStyle (withOpacity color 0.4)
   plot_fillbetween_values .= vals
-  plot_fillbetween_title .= label
+  plot_fillbetween_title .= title
 
 planetLine ::
   String ->
@@ -128,7 +121,7 @@ planetLine title color lineStyle values = liftEC $ do
   plot_lines_title .= title
   -- split the curve if a segment makes an abrupt jump in two consecutive days
   -- (no planet moves 100 degrees in a day, so we consider it spurious -- a "loop around")
-  plot_lines_values .= groupWhen (\(t1, x) (t2, y) -> abs (y - x) <= 30) values
+  plot_lines_values .= groupWhen (\(_t1, x) (_t2, y) -> abs (y - x) <= 30) values
   plot_lines_style . line_color .= color
   plot_lines_style . line_dashes .= dashes lineStyle
   where
@@ -177,6 +170,7 @@ planetColor Pluto = deeppink
 planetColor MeanNode = dimgray
 planetColor MeanApog = darkorchid
 planetColor Chiron = firebrick
+planetColor _ = mempty
 
 -- | Get all days in the given range, as @JulianTime@s
 julianDays :: Day -> Day -> [JulianTime]
@@ -204,23 +198,22 @@ eclipticEphemeris :: JulianTime -> Planet -> IO (Maybe EclipticPoint)
 eclipticEphemeris t p = do
   pos <- calculateEclipticPosition t p
   case pos of
-    Left e -> pure Nothing
+    Left _ -> pure Nothing
     Right EclipticPosition {lng} -> pure $ Just (julianToUTC t, lng)
 
 -- | Generate all crossings where an aspect can occur. Note that there's multiple,
 -- however many can fit in an ecliptic! 
 aspectBands :: Double -> EclipticPoint -> [Double]
-aspectBands aspectAngle (planet, position) =
+aspectBands aspectAngle (_planet, position) =
   take n $ tail $ iterate angleInEcliptic position
   where
     -- how many times this aspect can occur in the ecliptic
     n = floor $ 360/aspectAngle
     angleInEcliptic = toLongitude . (+ aspectAngle)
 
-conjunctions, sextiles, squares, trines 
+sextiles, squares, trines
   :: EclipticPoint -> [Double]
 
-conjunctions = aspectBands 0.0
 sextiles = aspectBands 60.0
 squares = aspectBands 90.0
 trines = aspectBands 120.0
@@ -261,7 +254,43 @@ toLongitude e
 groupWhen :: (a -> a -> Bool) -> [a] -> [[a]]
 groupWhen _ []    = []
 groupWhen _ [a]   = [[a]]
-groupWhen f (a:l) = 
+groupWhen f (a:l) =
   if f a (head c) then (a:c):r
   else [a]:c:r
   where (c:r) = groupWhen f l
+
+---
+--- OPT UTILS
+---
+
+dayReader :: ReadM Day
+dayReader = eitherReader $ \arg ->
+  case iso8601ParseM arg of
+    Nothing -> Left $ "Invalid date: " <> arg
+    Just day -> Right day
+
+datetimeReader :: ReadM UTCTime
+datetimeReader = eitherReader $ \arg ->
+  case iso8601ParseM arg of
+    Nothing -> Left $ "Invalid UTC timestamp: " <> arg
+    Just ts -> Right ts
+
+planetListReader :: ReadM [Planet]
+planetListReader = eitherReader $ \arg ->
+  case mapMaybe readMaybe (words arg) of
+    [] -> Left "No planets could be parsed"
+    ps -> Right ps
+
+optsParser :: ParserInfo Options
+optsParser =
+  info
+    (helper <*> mainOptions)
+    (fullDesc <> progDesc "Plot transit charts for the given natal planets, in the given time range, for a specific birth/event date")
+
+mainOptions :: Parser Options
+mainOptions =
+  Options
+    <$> option datetimeReader   (long "date" <> short 'd')
+    <*> option dayReader        (long "start" <> short 's')
+    <*> option dayReader        (long "end" <> short 'e')
+    <*> option planetListReader (long "planets" <> short 'p' <> help "space-separated list of planets")
