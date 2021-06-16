@@ -1,8 +1,8 @@
 {-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE TupleSections #-}
-
-{-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TupleSections #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
+
 module TransitCharts (main) where
 
 import Data.Foldable (forM_, traverse_)
@@ -18,17 +18,30 @@ import Data.Time
 import Data.Time.Format.ISO8601 (iso8601ParseM)
 import Graphics.Rendering.Chart.Backend.Diagrams (toFile)
 import Graphics.Rendering.Chart.Easy hiding (days)
+import Options.Applicative
+  ( Parser,
+    ParserInfo,
+    ReadM,
+    eitherReader,
+    execParser,
+    fullDesc,
+    help,
+    helper,
+    info,
+    long,
+    option,
+    progDesc,
+    short,
+  )
 import SwissEphemeris
   ( EclipticPosition (EclipticPosition, lng),
     JulianTime (..),
-    ZodiacSignName(..),
-    Planet
-      (..),
+    Planet (..),
+    ZodiacSignName (..),
     calculateEclipticPosition,
     gregorianDateTime,
     julianDay,
   )
-import Options.Applicative
 import Text.Read (readMaybe)
 
 type EclipticPoint = (UTCTime, Double)
@@ -44,19 +57,19 @@ defaultPlanets :: [Planet]
 defaultPlanets = [Sun .. Pluto] <> [MeanNode, MeanApog, Chiron]
 
 data Options = Options
-  { optBirthday :: !UTCTime
-  , optRangeStart :: !Day
-  , optRangeEnd :: !Day
-  , optNatalPlanets :: [Planet]
+  { optBirthday :: !UTCTime,
+    optRangeStart :: !Day,
+    optRangeEnd :: !Day,
+    optNatalPlanets :: [Planet]
   }
 
 main :: IO ()
 main = do
-  Options{optBirthday,optRangeStart,optRangeEnd,optNatalPlanets} <-
+  Options {optBirthday, optRangeStart, optRangeEnd, optNatalPlanets} <-
     execParser optsParser
   let days = julianDays optRangeStart optRangeEnd
       natalPlanets = optNatalPlanets
-      julian = utcToJulian optBirthday 
+      julian = utcToJulian optBirthday
 
   transited <- traverse (natalPosition julian) natalPlanets
   traverse_ (transitChart days) (catMaybes transited)
@@ -78,7 +91,7 @@ transitChart transitRange (transited, natalEphe@(_t, natalPos)) = do
     plotLeft $ aspectLine "Opposition" (opaque darkred) [opposition natalEphe]
 
     -- plot the zodiac bands
-    let zodiacBands = take 12 $ iterate (bimap (+30) (+30)) (0,30)
+    let zodiacBands = take 12 $ iterate (bimap (+ 30) (+ 30)) (0, 30)
         alternatingColors = concat $ replicate 6 [lightgray, white]
     forM_ (zip3 [Aries .. Pisces] alternatingColors zodiacBands) $ \(sign, color, band) -> do
       plotRight (fbetween (show sign) color [(julianToUTC t, band) | t <- transitRange])
@@ -98,8 +111,6 @@ transitChart transitRange (transited, natalEphe@(_t, natalPos)) = do
         ("Natal " <> show transited)
         (opaque green)
         [natalPos]
-
-
 
 fbetween ::
   String ->
@@ -142,11 +153,14 @@ hLine dashesPattern title color ys = liftEC $ do
   plot_lines_style . line_color .= color
   plot_lines_style . line_dashes .= dashesPattern
 
-aspectLine, natalLine :: String
- -> AlphaColour Double -> [Double] -> EC l2 (PlotLines x Double)
+aspectLine,
+  natalLine ::
+    String ->
+    AlphaColour Double ->
+    [Double] ->
+    EC l2 (PlotLines x Double)
 aspectLine = hLine [2.0, 3.0]
 natalLine = hLine [1.0, 1.0]
-
 
 planetLineStyle :: Planet -> Line
 planetLineStyle Moon = Dotted
@@ -202,27 +216,27 @@ eclipticEphemeris t p = do
     Right EclipticPosition {lng} -> pure $ Just (julianToUTC t, lng)
 
 -- | Generate all crossings where an aspect can occur. Note that there's multiple,
--- however many can fit in an ecliptic! 
+-- however many can fit in an ecliptic!
 aspectBands :: Double -> EclipticPoint -> [Double]
 aspectBands aspectAngle (_planet, position) =
   take n $ tail $ iterate angleInEcliptic position
   where
     -- how many times this aspect can occur in the ecliptic
-    n = floor $ 360/aspectAngle
+    n = floor $ 360 / aspectAngle
     angleInEcliptic = toLongitude . (+ aspectAngle)
 
-sextiles, squares, trines
-  :: EclipticPoint -> [Double]
-
+sextiles,
+  squares,
+  trines ::
+    EclipticPoint -> [Double]
 sextiles = aspectBands 60.0
 squares = aspectBands 90.0
 trines = aspectBands 120.0
 
--- there's only one opposition: the "other one" is 
+-- there's only one opposition: the "other one" is
 -- just the conjunction.
 opposition :: EclipticPoint -> Double
 opposition = head . aspectBands 180.0
-
 
 picosecondsInHour :: Double
 picosecondsInHour = 3600 * 1e12
@@ -252,12 +266,14 @@ toLongitude e
 
 -- from: https://gitlab.haskell.org/ghc/ghc/-/issues/1408
 groupWhen :: (a -> a -> Bool) -> [a] -> [[a]]
-groupWhen _ []    = []
-groupWhen _ [a]   = [[a]]
-groupWhen f (a:l) =
-  if f a (head c) then (a:c):r
-  else [a]:c:r
-  where (c:r) = groupWhen f l
+groupWhen _ [] = []
+groupWhen _ [a] = [[a]]
+groupWhen f (a : l) =
+  if f a (head c)
+    then (a : c) : r
+    else [a] : c : r
+  where
+    (c : r) = groupWhen f l
 
 ---
 --- OPT UTILS
@@ -290,7 +306,7 @@ optsParser =
 mainOptions :: Parser Options
 mainOptions =
   Options
-    <$> option datetimeReader   (long "date" <> short 'd')
-    <*> option dayReader        (long "start" <> short 's')
-    <*> option dayReader        (long "end" <> short 'e')
+    <$> option datetimeReader (long "date" <> short 'd')
+    <*> option dayReader (long "start" <> short 's')
+    <*> option dayReader (long "end" <> short 'e')
     <*> option planetListReader (long "planets" <> short 'p' <> help "space-separated list of planets")
