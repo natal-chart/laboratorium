@@ -19,7 +19,10 @@ maintainer:          luis@astralarcanum.com
 library
   exposed-modules:
     TransitCharts
-  -- other-modules:
+    PrecalculatedEphemeris
+    CLI
+    OptionParser
+
   -- other-extensions:
   build-depends:
     base 

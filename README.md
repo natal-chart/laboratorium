@@ -1,6 +1,7 @@
 # Laboratorium
 
-Half-baked experiments for our other apps.
+Half-baked experiments for our other apps. All commands require that ephemeris files
+are provided in the `ephe` directory.
 
 ## Transit Charts
 
@@ -17,7 +18,7 @@ Example:
 
 
 ```sh
-cabal new-run laboratorium -- --date "1989-01-07T05:30:00Z" --start "2020-01-01" --end "2021-12-31" --planets "Mars Jupiter"
+cabal new-run laboratorium -- charts --date "1989-01-07T05:30:00Z" --start "2021-01-01" --end "2022-01-31" --planets "Jupiter" --ephe-path "./ephe"
 ```
 
 It will output charts in the `charts/` folder, can open them with any SVG viewer.

@@ -3,16 +3,15 @@
 {-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module TransitCharts (main) where
+module TransitCharts where
 
-import Data.Foldable (forM_, traverse_)
-import Data.Maybe (mapMaybe, fromMaybe, fromJust, isJust)
+import Data.Foldable (forM_, traverse_, Foldable (toList, foldMap'))
+import Data.Maybe (mapMaybe, fromMaybe)
 import Data.Time
   ( Day,
     toGregorian,
     UTCTime,
   )
-import Data.Time.Format.ISO8601 (iso8601ParseM)
 import Graphics.Rendering.Chart.Backend.Diagrams (toFile)
 import Graphics.Rendering.Chart.Easy hiding (days)
 import Options.Applicative
@@ -20,7 +19,6 @@ import Options.Applicative
     ParserInfo,
     ReadM,
     eitherReader,
-    execParser,
     fullDesc,
     help,
     helper,
@@ -36,11 +34,26 @@ import SwissEphemeris
     ZodiacSignName (..), ToJulianDay (toJulianDay), gregorianToFakeJulianDayTT, FromJulianDay (fromJulianDay)
   )
 import Text.Read (readMaybe)
-import SwissEphemeris.Precalculated (readEphemerisEasy, forPlanet, EphemerisPosition (EphemerisPosition, epheLongitude), Ephemeris(..))
-import Control.Monad (forM, guard)
+import SwissEphemeris.Precalculated (readEphemerisEasy, forPlanet, EphemerisPosition (EphemerisPosition, epheLongitude, ephePlanet), Ephemeris(..))
+import Control.Monad (forM)
+import qualified Data.Map as M
+import OptionParser ( dayReader, datetimeReader )
 
 
 data Line = Solid | Dotted
+
+-- newtype idea from:
+-- https://stackoverflow.com/questions/32160350/folding-over-a-list-and-counting-all-occurrences-of-arbitrarily-many-unique-and
+newtype PlanetMap =
+  PlanetMap {getPlanetMap :: M.Map Planet [(UTCTime, Double)]}
+  deriving (Eq, Ord, Show)
+
+instance Semigroup PlanetMap where
+  (PlanetMap p1) <> (PlanetMap p2) =
+    PlanetMap $ M.unionWith (<>) p1 p2
+
+instance Monoid PlanetMap where
+  mempty = PlanetMap M.empty
 
 deriving instance Read Planet
 
@@ -55,27 +68,26 @@ data Options = Options
     optNatalPlanets :: [Planet]
   }
 
-main :: IO ()
-main = do
-  Options {optBirthday, optRangeStart, optRangeEnd, optNatalPlanets} <-
-    execParser optsParser
+main :: Options -> IO ()
+main Options {optBirthday, optRangeStart, optRangeEnd, optNatalPlanets}= do
   let days = julianDays optRangeStart optRangeEnd
       natalPlanets = optNatalPlanets
+
   Just julian <- toJulianDay optBirthday
-  utcDays <- (sequence $ fromJulianDay <$> days) :: IO [UTCTime]
+  utcDays <- sequence $ fromJulianDay <$> days
   let allDays = zip days utcDays
   transitedEphe <- readEphemerisEasy False julian
   transitingEphe <- forM allDays $ \(dtt, dut) -> do
     transit <- readEphemerisEasy False dtt
-    pure (dut, either (const Nothing) Just transit)
-  print $ length transitingEphe
+    pure (dut, transit)
+
   case transitedEphe of
     Left err -> fail err
     Right ephe -> do
       let transited = fromMaybe [] $ traverse (`forPlanet` ephe) natalPlanets
-      traverse_ (transitChart allDays transitingEphe) transited
+      traverse_ (transitChart allDays (foldEphemeris transitingEphe)) transited
 
-transitChart :: [(JulianDayTT, UTCTime)] -> [(UTCTime, Maybe (Ephemeris Double))] -> EphemerisPosition Double -> IO ()
+transitChart :: [(JulianDayTT, UTCTime)] -> PlanetMap -> EphemerisPosition Double -> IO ()
 transitChart transitRange transits natalEphe@(EphemerisPosition transited natalPos _spd) = do
   toFile def ("charts/" <> show transited <> "_transits.svg") $ do
     layoutlr_title .= "Transits to " <> show transited
@@ -102,7 +114,7 @@ transitChart transitRange transits natalEphe@(EphemerisPosition transited natalP
           (show transitingP)
           (opaque $ planetColor transitingP)
           (planetLineStyle transitingP)
-          (planetTransits transits transitingP)
+          (M.findWithDefault [] transitingP (getPlanetMap transits))
 
     -- plot the original natal position line
     plotLeft $
@@ -111,13 +123,17 @@ transitChart transitRange transits natalEphe@(EphemerisPosition transited natalP
         (opaque green)
         [natalPos]
 
-planetTransits :: [(UTCTime, Maybe (Ephemeris Double))] -> Planet -> [(UTCTime, Double)]
-planetTransits ephe planet = do
-  (t, dayEphe) <- ephe
-  guard $ isJust dayEphe
-  let planetEphe = forPlanet planet =<< dayEphe
-  guard $ isJust planetEphe
-  pure (t, epheLongitude $ fromJust planetEphe)
+-- | Given a time series of @[(utcTime, allPlanetLocationsThatDay)]@, produce
+-- a mapping of @Planet@ to all of its positions across the time series; essentially
+-- "ungrouping" the positions.
+foldEphemeris :: [(UTCTime, Either String (Ephemeris Double))] -> PlanetMap
+foldEphemeris = foldMap' $ \(ut, maybeEphe) ->
+  mconcat $ forEach (toList $ either mempty ephePositions maybeEphe) $ \pos ->
+    PlanetMap $ M.fromList [(ephePlanet pos, [(ut, epheLongitude pos)])]
+
+-- | Sorry...
+forEach :: [a] -> (a -> b) -> [b]
+forEach = flip map
 
 fbetween ::
   String ->
@@ -234,31 +250,22 @@ toLongitude e
   | otherwise = e
 
 -- from: https://gitlab.haskell.org/ghc/ghc/-/issues/1408
+-- and: https://mail.haskell.org/pipermail/libraries/2009-November/012794.html
 groupWhen :: (a -> a -> Bool) -> [a] -> [[a]]
-groupWhen _ [] = []
-groupWhen _ [a] = [[a]]
-groupWhen f (a : l) =
-  if f a (head c)
-    then (a : c) : r
-    else [a] : c : r
+groupWhen _ [ ] = []
+groupWhen _ [x] = [[x]]
+groupWhen p (c:cs) = r : groupWhen p xs' 
   where
-    (c : r) = groupWhen f l
+  (r,xs') = run c cs
+  cons' x (xs,y) = (x:xs,y)
+  run y [] = ([y],[])
+  run y l@(x:xs) | p y x     = cons' y $ run x xs
+                 | otherwise = ([y],l)
+
 
 ---
 --- OPT UTILS
 ---
-
-dayReader :: ReadM Day
-dayReader = eitherReader $ \arg ->
-  case iso8601ParseM arg of
-    Nothing -> Left $ "Invalid date: " <> arg
-    Just day -> Right day
-
-datetimeReader :: ReadM UTCTime
-datetimeReader = eitherReader $ \arg ->
-  case iso8601ParseM arg of
-    Nothing -> Left $ "Invalid UTC timestamp: " <> arg
-    Just ts -> Right ts
 
 planetListReader :: ReadM [Planet]
 planetListReader = eitherReader $ \arg ->
