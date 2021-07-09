@@ -10,7 +10,7 @@ let
 in (super: {
   # don't run tests for these
   # they currently don't build in nix due to bad quickcheck versions
-  swiss-ephemeris = dontCheck (super.callPackage ./extra-pkgs/swiss-ephemeris.nix {}) ;
+  swiss-ephemeris = super.callPackage ./extra-pkgs/swiss-ephemeris.nix {};
   timezone-detect = dontCheck (super.callPackage ./extra-pkgs/timezone-detect.nix {}) ;
   # had to jailbreak due to incompatible versions of base and optparse-applicative
   #diagrams-rasterific = doJailbreak (super.diagrams-rasterific);

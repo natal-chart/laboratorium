@@ -3,19 +3,15 @@
 {-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module TransitCharts (main) where
+module TransitCharts where
 
-import Data.Foldable (forM_, traverse_)
-import Data.Maybe (catMaybes, mapMaybe)
+import Data.Foldable (forM_, traverse_, Foldable (toList, foldMap'))
+import Data.Maybe (mapMaybe, fromMaybe)
 import Data.Time
   ( Day,
-    UTCTime (UTCTime),
-    diffTimeToPicoseconds,
-    fromGregorian,
-    picosecondsToDiffTime,
     toGregorian,
+    UTCTime,
   )
-import Data.Time.Format.ISO8601 (iso8601ParseM)
 import Graphics.Rendering.Chart.Backend.Diagrams (toFile)
 import Graphics.Rendering.Chart.Easy hiding (days)
 import Options.Applicative
@@ -23,7 +19,6 @@ import Options.Applicative
     ParserInfo,
     ReadM,
     eitherReader,
-    execParser,
     fullDesc,
     help,
     helper,
@@ -34,21 +29,31 @@ import Options.Applicative
     short,
   )
 import SwissEphemeris
-  ( EclipticPosition (EclipticPosition, lng),
-    JulianTime (..),
+  ( JulianDayTT,
     Planet (..),
-    ZodiacSignName (..),
-    calculateEclipticPosition,
-    gregorianDateTime,
-    julianDay,
+    ZodiacSignName (..), ToJulianDay (toJulianDay), gregorianToFakeJulianDayTT, FromJulianDay (fromJulianDay)
   )
 import Text.Read (readMaybe)
+import SwissEphemeris.Precalculated (readEphemerisEasy, forPlanet, EphemerisPosition (EphemerisPosition, epheLongitude, ephePlanet), Ephemeris(..))
+import Control.Monad (forM)
+import qualified Data.Map as M
+import OptionParser ( dayReader, datetimeReader )
 
-type EclipticPoint = (UTCTime, Double)
-
-type Ephemeris = (Planet, [EclipticPoint])
 
 data Line = Solid | Dotted
+
+-- newtype idea from:
+-- https://stackoverflow.com/questions/32160350/folding-over-a-list-and-counting-all-occurrences-of-arbitrarily-many-unique-and
+newtype PlanetMap =
+  PlanetMap {getPlanetMap :: M.Map Planet [(UTCTime, Double)]}
+  deriving (Eq, Ord, Show)
+
+instance Semigroup PlanetMap where
+  (PlanetMap p1) <> (PlanetMap p2) =
+    PlanetMap $ M.unionWith (<>) p1 p2
+
+instance Monoid PlanetMap where
+  mempty = PlanetMap M.empty
 
 deriving instance Read Planet
 
@@ -63,21 +68,27 @@ data Options = Options
     optNatalPlanets :: [Planet]
   }
 
-main :: IO ()
-main = do
-  Options {optBirthday, optRangeStart, optRangeEnd, optNatalPlanets} <-
-    execParser optsParser
+main :: Options -> IO ()
+main Options {optBirthday, optRangeStart, optRangeEnd, optNatalPlanets}= do
   let days = julianDays optRangeStart optRangeEnd
       natalPlanets = optNatalPlanets
-      julian = utcToJulian optBirthday
 
-  transited <- traverse (natalPosition julian) natalPlanets
-  traverse_ (transitChart days) (catMaybes transited)
+  Just julian <- toJulianDay optBirthday
+  utcDays <- sequence $ fromJulianDay <$> days
+  let allDays = zip days utcDays
+  transitedEphe <- readEphemerisEasy False julian
+  transitingEphe <- forM allDays $ \(dtt, dut) -> do
+    transit <- readEphemerisEasy False dtt
+    pure (dut, transit)
 
-transitChart :: [JulianTime] -> (Planet, EclipticPoint) -> IO ()
-transitChart transitRange (transited, natalEphe@(_t, natalPos)) = do
-  transits <- traverse (transitingPositions transitRange) defaultPlanets
+  case transitedEphe of
+    Left err -> fail err
+    Right ephe -> do
+      let transited = fromMaybe [] $ traverse (`forPlanet` ephe) natalPlanets
+      traverse_ (transitChart allDays (foldEphemeris transitingEphe)) transited
 
+transitChart :: [(JulianDayTT, UTCTime)] -> PlanetMap -> EphemerisPosition Double -> IO ()
+transitChart transitRange transits natalEphe@(EphemerisPosition transited natalPos _spd) = do
   toFile def ("charts/" <> show transited <> "_transits.svg") $ do
     layoutlr_title .= "Transits to " <> show transited
     -- hide axis guidelines -- too much noise
@@ -94,16 +105,16 @@ transitChart transitRange (transited, natalEphe@(_t, natalPos)) = do
     let zodiacBands = take 12 $ iterate (bimap (+ 30) (+ 30)) (0, 30)
         alternatingColors = concat $ replicate 6 [lightgray, white]
     forM_ (zip3 [Aries .. Pisces] alternatingColors zodiacBands) $ \(sign, color, band) -> do
-      plotRight (fbetween (show sign) color [(julianToUTC t, band) | t <- transitRange])
+      plotRight (fbetween (show sign) color [(ut, band) | (_tt, ut) <- transitRange])
 
     -- plot the positions of all planets for all year
-    forM_ transits $ \(transiting, ephemeris) -> do
+    forM_ defaultPlanets $ \transitingP -> do
       plotLeft $
         planetLine
-          (show transiting)
-          (opaque $ planetColor transiting)
-          (planetLineStyle transiting)
-          ephemeris
+          (show transitingP)
+          (opaque $ planetColor transitingP)
+          (planetLineStyle transitingP)
+          (M.findWithDefault [] transitingP (getPlanetMap transits))
 
     -- plot the original natal position line
     plotLeft $
@@ -111,6 +122,18 @@ transitChart transitRange (transited, natalEphe@(_t, natalPos)) = do
         ("Natal " <> show transited)
         (opaque green)
         [natalPos]
+
+-- | Given a time series of @[(utcTime, allPlanetLocationsThatDay)]@, produce
+-- a mapping of @Planet@ to all of its positions across the time series; essentially
+-- "ungrouping" the positions.
+foldEphemeris :: [(UTCTime, Either String (Ephemeris Double))] -> PlanetMap
+foldEphemeris = foldMap' $ \(ut, maybeEphe) ->
+  mconcat $ forEach (toList $ either mempty ephePositions maybeEphe) $ \pos ->
+    PlanetMap $ M.fromList [(ephePlanet pos, [(ut, epheLongitude pos)])]
+
+-- | Sorry...
+forEach :: [a] -> (a -> b) -> [b]
+forEach = flip map
 
 fbetween ::
   String ->
@@ -186,39 +209,20 @@ planetColor MeanApog = darkorchid
 planetColor Chiron = firebrick
 planetColor _ = mempty
 
--- | Get all days in the given range, as @JulianTime@s
-julianDays :: Day -> Day -> [JulianTime]
+-- | Get all days in the given range, as @JulianDayTT@s
+julianDays :: Day -> Day -> [JulianDayTT]
 julianDays startDay endDay =
-  map JulianTime [start, (start + 1.0) .. end]
+  [start .. end]
   where
-    start = unJulianTime . utcToJulian $ UTCTime startDay 0
-    end = unJulianTime . utcToJulian $ UTCTime endDay 0
-
--- | Get all positions across the given time range for
--- the given planet.
-transitingPositions :: [JulianTime] -> Planet -> IO Ephemeris
-transitingPositions days p = do
-  ephe <- mapM (`eclipticEphemeris` p) days
-  pure (p, catMaybes ephe)
-
-natalPosition :: JulianTime -> Planet -> IO (Maybe (Planet, EclipticPoint))
-natalPosition bday p = do
-  ephe <- eclipticEphemeris bday p
-  pure $ fmap (p,) ephe
-
--- | Get the single ecliptic "point" (time + longitude)
--- for the given planet at the given UTC time.
-eclipticEphemeris :: JulianTime -> Planet -> IO (Maybe EclipticPoint)
-eclipticEphemeris t p = do
-  pos <- calculateEclipticPosition t p
-  case pos of
-    Left _ -> pure Nothing
-    Right EclipticPosition {lng} -> pure $ Just (julianToUTC t, lng)
+    (startY, startM, startD) = toGregorian startDay
+    (endY, endM, endD) = toGregorian endDay
+    start = gregorianToFakeJulianDayTT startY startM startD 0
+    end = gregorianToFakeJulianDayTT endY endM endD 0
 
 -- | Generate all crossings where an aspect can occur. Note that there's multiple,
 -- however many can fit in an ecliptic!
-aspectBands :: Double -> EclipticPoint -> [Double]
-aspectBands aspectAngle (_planet, position) =
+aspectBands :: Double -> EphemerisPosition Double-> [Double]
+aspectBands aspectAngle (EphemerisPosition _planet position _spd) =
   take n $ tail $ iterate angleInEcliptic position
   where
     -- how many times this aspect can occur in the ecliptic
@@ -228,34 +232,15 @@ aspectBands aspectAngle (_planet, position) =
 sextiles,
   squares,
   trines ::
-    EclipticPoint -> [Double]
+    EphemerisPosition Double-> [Double]
 sextiles = aspectBands 60.0
 squares = aspectBands 90.0
 trines = aspectBands 120.0
 
 -- there's only one opposition: the "other one" is
 -- just the conjunction.
-opposition :: EclipticPoint -> Double
+opposition :: EphemerisPosition Double -> Double
 opposition = head . aspectBands 180.0
-
-picosecondsInHour :: Double
-picosecondsInHour = 3600 * 1e12
-
--- | Convert between a UTC timestamp and the low-level JulianTime that SwissEphemeris requires.
-utcToJulian :: UTCTime -> JulianTime
-utcToJulian (UTCTime day time) =
-  julianDay (fromIntegral y) m d h
-  where
-    (y, m, d) = toGregorian day
-    h = (1 / picosecondsInHour) * fromIntegral (diffTimeToPicoseconds time)
-
-julianToUTC :: JulianTime -> UTCTime
-julianToUTC jd =
-  UTCTime day dt
-  where
-    (y, m, d, h) = gregorianDateTime jd
-    day = fromGregorian (fromIntegral y) m d
-    dt = picosecondsToDiffTime $ round $ h * picosecondsInHour
 
 toLongitude :: Double -> Double
 toLongitude e
@@ -265,31 +250,22 @@ toLongitude e
   | otherwise = e
 
 -- from: https://gitlab.haskell.org/ghc/ghc/-/issues/1408
+-- and: https://mail.haskell.org/pipermail/libraries/2009-November/012794.html
 groupWhen :: (a -> a -> Bool) -> [a] -> [[a]]
-groupWhen _ [] = []
-groupWhen _ [a] = [[a]]
-groupWhen f (a : l) =
-  if f a (head c)
-    then (a : c) : r
-    else [a] : c : r
+groupWhen _ [ ] = []
+groupWhen _ [x] = [[x]]
+groupWhen p (c:cs) = r : groupWhen p xs' 
   where
-    (c : r) = groupWhen f l
+  (r,xs') = run c cs
+  cons' x (xs,y) = (x:xs,y)
+  run y [] = ([y],[])
+  run y l@(x:xs) | p y x     = cons' y $ run x xs
+                 | otherwise = ([y],l)
+
 
 ---
 --- OPT UTILS
 ---
-
-dayReader :: ReadM Day
-dayReader = eitherReader $ \arg ->
-  case iso8601ParseM arg of
-    Nothing -> Left $ "Invalid date: " <> arg
-    Just day -> Right day
-
-datetimeReader :: ReadM UTCTime
-datetimeReader = eitherReader $ \arg ->
-  case iso8601ParseM arg of
-    Nothing -> Left $ "Invalid UTC timestamp: " <> arg
-    Just ts -> Right ts
 
 planetListReader :: ReadM [Planet]
 planetListReader = eitherReader $ \arg ->
