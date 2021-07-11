@@ -28,7 +28,7 @@ newtype PlanetStationSeq =
   deriving (Show)
 
 singleton :: PlanetStation -> PlanetStationSeq
-singleton ps = PlanetStationSeq $ S.singleton ps
+singleton = PlanetStationSeq . S.singleton
 
 instance Semigroup PlanetStationSeq where
   (PlanetStationSeq s1) <> (PlanetStationSeq s2) =
