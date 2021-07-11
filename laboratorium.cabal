@@ -24,6 +24,7 @@ library
     OptionParser
     Query.Main
     Query.Retrograde
+    Query.Crossing
 
   -- other-extensions:
   build-depends:

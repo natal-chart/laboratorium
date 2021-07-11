@@ -14,42 +14,42 @@ import Data.Maybe (mapMaybe)
 data SimplePlanetStation = Retrograde | Direct
   deriving (Eq, Show)
 
-data Crossing = Crossing
+data Crossing a = Crossing
   { crossingEnters :: !(Maybe JulianDayTT)
   , crossingExits :: !(Maybe JulianDayTT)
-  , crossingDegree :: !Double
+  , crossingSubject :: !a
   , crossingPlanetEntered :: !(Maybe SimplePlanetStation)
   , crossingPlanetExited :: !(Maybe SimplePlanetStation)
   } deriving (Show)
 
-newtype CrossingSeq =
-  CrossingSeq { getCrossings :: S.Seq Crossing}
+newtype CrossingSeq a =
+  CrossingSeq { getCrossings :: S.Seq (Crossing a)}
   deriving (Show)
 
-singleton :: Crossing -> CrossingSeq
+singleton :: Crossing a -> CrossingSeq a
 singleton = CrossingSeq . S.singleton
 
-instance Semigroup CrossingSeq where
+instance HasEclipticLongitude  a => Semigroup (CrossingSeq a) where
   (CrossingSeq s1) <> (CrossingSeq s2) =
     let s1Last = S.viewr s1
         s2First = S.viewl s2
     in CrossingSeq $ mergeCrossingEvents s1Last s2First
 
-instance Monoid CrossingSeq where
+instance HasEclipticLongitude  a => Monoid (CrossingSeq a) where
   mempty = CrossingSeq S.empty
 
-newtype CrossingMap =
-  CrossingMap { getCrossingMap :: M.Map Planet CrossingSeq}
+newtype CrossingMap a =
+  CrossingMap { getCrossingMap :: M.Map Planet (CrossingSeq a)}
   deriving (Show)
 
-instance Semigroup CrossingMap where
+instance HasEclipticLongitude  a => Semigroup (CrossingMap a) where
   (CrossingMap c1) <> (CrossingMap c2) =
     CrossingMap $ M.unionWith (<>) c1 c2
 
-instance Monoid CrossingMap where
+instance HasEclipticLongitude  a => Monoid (CrossingMap a) where
   mempty = CrossingMap M.empty
 
-foldCrossings :: [Double] -> [[Either String (Ephemeris Double)]] -> CrossingMap
+foldCrossings :: HasEclipticLongitude  a => [a] -> [[Either String (Ephemeris Double)]] -> CrossingMap a
 foldCrossings degreesToCross = foldMap' $ \case
   (Right pos1 : Right pos2 : _) ->
     mconcat $ flip map (zip (toList $ ephePositions pos1) (toList $ ephePositions pos2)) $ \(p1, p2) ->
@@ -65,39 +65,41 @@ foldCrossings degreesToCross = foldMap' $ \case
     CrossingMap M.empty
 
 
-mergeCrossingEvents :: ViewR Crossing -> ViewL Crossing -> Seq Crossing
+mergeCrossingEvents :: HasEclipticLongitude  a => ViewR (Crossing a) -> ViewL (Crossing a) -> Seq (Crossing a)
 mergeCrossingEvents EmptyR EmptyL = S.empty
 mergeCrossingEvents EmptyR (x :< xs) = x <| xs
 mergeCrossingEvents (xs :> x) EmptyL = xs |> x
 mergeCrossingEvents (xs :> x) (y :< ys) =
-  if crossingDegree x /= crossingDegree y then
+  if crossingSubject x == crossingSubject y then
     (xs |> merged) >< ys
   else
-    -- if it's the same degree... discard the latest
-    -- event as a weird "wobble"
-    (xs |> x) >< ys
+    (xs |> updated) >< ( y <| ys)
   where
     merged = x {
-      crossingExits   = crossingEnters y,
+      crossingExits   = crossingExits y,
+      crossingPlanetExited = crossingPlanetExited y
+    }
+    updated = x {
+      crossingExits = crossingEnters y,
       crossingPlanetExited = crossingPlanetEntered y
     }
 
-mkCrossing :: (JulianDayTT, EphemerisPosition Double) -> (JulianDayTT, EphemerisPosition Double) -> Double -> Maybe Crossing
+mkCrossing :: HasEclipticLongitude a => (JulianDayTT, EphemerisPosition Double) -> (JulianDayTT, EphemerisPosition Double) -> a -> Maybe (Crossing a)
 mkCrossing (d1, pos1) (_d2, pos2) toCross
-  | epheLongitude pos1 <= toCross && epheLongitude pos2 > toCross =
+  | epheLongitude pos1 <= getEclipticLongitude toCross && epheLongitude pos2 > getEclipticLongitude toCross =
     Just $ Crossing {
         crossingEnters = Just d1,
         crossingExits = Nothing,
-        crossingDegree = toCross,
+        crossingSubject = toCross,
         crossingPlanetEntered = Just Direct,
         crossingPlanetExited = Nothing
       }
-  | epheLongitude pos1 >= toCross && epheLongitude pos2 < toCross =
+  | epheLongitude pos1 >= getEclipticLongitude toCross && epheLongitude pos2 < getEclipticLongitude toCross =
     Just $ Crossing {
-        crossingEnters = Just d1,
-        crossingExits = Nothing,
-        crossingDegree = toCross,
-        crossingPlanetEntered = Just Direct,
-        crossingPlanetExited = Nothing
+        crossingEnters = Nothing,
+        crossingExits = Just d1,
+        crossingSubject = toCross,
+        crossingPlanetEntered = Nothing,
+        crossingPlanetExited = Just Retrograde
     }
   | otherwise = Nothing

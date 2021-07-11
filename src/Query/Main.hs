@@ -33,7 +33,8 @@ data Options = Options
 
 type IntervalEphemeris = [Either String (Ephemeris Double)]
 
-data Zodiac = Zodiac ZodiacSignName Double
+data Zodiac = Zodiac 
+  { signName :: ZodiacSignName, signLng :: Double}
   deriving (Eq, Show)
   
 instance HasEclipticLongitude Zodiac where
@@ -70,12 +71,14 @@ doCrossings:: IntervalEphemeris -> IO ()
 doCrossings ephe = do
   let zodiacs = take 12 $ iterate (+ 30) 0
       signs = zipWith Zodiac [Aries .. Pisces] zodiacs
-      cross = foldCrossings zodiacs (windows 2 ephe)
-  -- retrogrades for 2020: https://www.findyourfate.com/astrology/year2020/2020-planetretrogrades.html
+      cross = foldCrossings signs (windows 2 ephe)
+  -- crossings for 2020:
+  -- https://cafeastrology.com/astrology-of-2020.html
   forM_ (M.toAscList (getCrossingMap cross)) $ \(planet, crossings) -> do
+    putStrLn ""
     print planet
     putStrLn "-----------"
-    forM_ (getCrossings crossings) $ \Crossing{crossingEnters, crossingExits, crossingDegree} -> do
+    forM_ (getCrossings crossings) $ \Crossing{crossingEnters, crossingExits, crossingSubject} -> do
       let startsUT = fromJulianDay <$> crossingEnters :: (Maybe (IO UTCTime))
           endsUT = fromJulianDay <$> crossingExits :: (Maybe (IO UTCTime))
       interval <-
@@ -84,14 +87,12 @@ doCrossings ephe = do
           (Just starts, Nothing) -> do
             ("starts: " <> ) . show <$> starts
           (Nothing, Just ends) -> do
-            ("ends :" <> ) . show <$> ends
+            ("ends: " <> ) . show <$> ends
           (Just starts, Just ends) -> do
             starts' <- starts
             ends' <- ends
             pure $ show starts' <> " - " <> show ends'
-
-
-      putStrLn $ "At" <> show crossingDegree <> " ( " <> interval <> ")"
+      putStrLn $ "In " <> show (signName crossingSubject) <> " ( " <> interval <> ")"
 
 
 
