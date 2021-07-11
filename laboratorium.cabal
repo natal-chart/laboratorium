@@ -22,6 +22,8 @@ library
     PrecalculatedEphemeris
     CLI
     OptionParser
+    Query.Main
+    Query.Retrograde
 
   -- other-extensions:
   build-depends:
@@ -35,6 +37,10 @@ library
     ,Chart-diagrams
     ,optparse-applicative
     ,directory
+    ,streaming
+    ,colonnade
+    ,foldl
+    ,vector
   hs-source-dirs: src
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints
   default-language:    Haskell2010
