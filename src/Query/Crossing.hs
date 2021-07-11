@@ -86,20 +86,26 @@ mergeCrossingEvents (xs :> x) (y :< ys) =
 
 mkCrossing :: HasEclipticLongitude a => (JulianDayTT, EphemerisPosition Double) -> (JulianDayTT, EphemerisPosition Double) -> a -> Maybe (Crossing a)
 mkCrossing (d1, pos1) (_d2, pos2) toCross
-  | epheLongitude pos1 <= getEclipticLongitude toCross && epheLongitude pos2 > getEclipticLongitude toCross =
-    Just $ Crossing {
+  | crossesDirect (epheLongitude pos1) (epheLongitude pos2) (getEclipticLongitude toCross) =
+     Just $ Crossing {
         crossingEnters = Just d1,
         crossingExits = Nothing,
         crossingSubject = toCross,
         crossingPlanetEntered = Just Direct,
         crossingPlanetExited = Nothing
       }
-  | epheLongitude pos1 >= getEclipticLongitude toCross && epheLongitude pos2 < getEclipticLongitude toCross =
-    Just $ Crossing {
-        crossingEnters = Nothing,
-        crossingExits = Just d1,
-        crossingSubject = toCross,
-        crossingPlanetEntered = Nothing,
-        crossingPlanetExited = Just Retrograde
-    }
   | otherwise = Nothing
+
+crossesDirect :: Double -> Double -> Double -> Bool
+crossesDirect p1 p2 toCross =
+  if abs (p1 - p2) >= 100 && toCross == 0 then
+    p1 <= (toCross + 360) && p2 >= toCross
+  else
+    p1 <= toCross && p2 > toCross
+
+crossesRetrograde :: Double -> Double -> Double -> Bool
+crossesRetrograde p1 p2 toCross =
+  if abs (p1 - p2) >= 100 then
+    p1 >= toCross && p2 < (toCross + 360)
+  else
+    p1 >= toCross && p2 < toCross
