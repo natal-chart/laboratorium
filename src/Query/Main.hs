@@ -20,6 +20,7 @@ main Options{optRangeStart, optRangeEnd} = do
   let days = julianDayRange optRangeStart optRangeEnd
   ephe <- for days (readEphemerisEasy False)
   let retro = foldRetrograde (windows 2 ephe)
+  -- retrogrades for 2020: https://www.findyourfate.com/astrology/year2020/2020-planetretrogrades.html
   forM_ (M.toAscList (getRetrogradeMap retro)) $ \(planet, stations) -> do
     print planet
     putStrLn "-----------"
