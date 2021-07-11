@@ -14,7 +14,7 @@ data Options = Options
   { optRangeStart :: !Day
   , optRangeEnd :: !Day
   }
-  
+
 main :: Options -> IO ()
 main Options{optRangeStart, optRangeEnd} = do
   let days = julianDayRange optRangeStart optRangeEnd
@@ -26,9 +26,13 @@ main Options{optRangeStart, optRangeEnd} = do
     forM_ (getStations stations) $ \PlanetStation{stationStarts, stationEnds, stationType} -> do
       startsUT <- fromJulianDay stationStarts :: IO UTCTime
       endsUT <- fromJulianDay stationEnds :: IO UTCTime
-      let interval = if startsUT == endsUT then (show startsUT) else (show startsUT <> " - " <> show endsUT)
-      putStrLn $ (show stationType) <> "( " <> interval <> ")"
-    
+      let interval = 
+            if stationType `elem` [Direct, Retrograde] then 
+              show endsUT 
+            else 
+              show startsUT <> " - " <> show endsUT
+      putStrLn $ show stationType <> " ( " <> interval <> ")"
+
 
 
 -- | Get all days in the given range, as @JulianDayTT@s
