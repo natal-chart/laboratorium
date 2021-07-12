@@ -53,6 +53,9 @@ foldCrossings :: HasEclipticLongitude  a => [a] -> [[Either String (Ephemeris Do
 foldCrossings degreesToCross = foldMap' $ \case
   (Right pos1 : Right pos2 : _) ->
     mconcat $ flip map (zip (toList $ ephePositions pos1) (toList $ ephePositions pos2)) $ \(p1, p2) ->
+      -- the Moon crosses most of the ecliptic every month, so it's not
+      -- really significant. The nodes do have a slower behavior, so maybe
+      -- I'll reinstate them.
       if ephePlanet p1 `elem` [Moon, TrueNode, MeanNode] then
         CrossingMap M.empty
       else

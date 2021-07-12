@@ -55,11 +55,7 @@ instance Monoid RetrogradeMap where
 
 foldRetrograde :: [[Either String (Ephemeris Double)]] -> RetrogradeMap
 foldRetrograde = foldMap' $ \case
-    [] -> RetrogradeMap M.empty
-    [_] -> RetrogradeMap M.empty
-    (Left _:_) -> RetrogradeMap M.empty
-    (_:Left _:_) -> RetrogradeMap M.empty
-    (Right pos1:Right pos2:_) ->
+    (Right pos1 : Right pos2 : _) ->
       mconcat $ flip map (zip (toList $ ephePositions pos1) (toList $ ephePositions pos2)) $ \(p1, p2) ->
         case mkStation (epheDate pos1, p1) (epheDate pos2, p2) of
           Nothing -> RetrogradeMap M.empty
@@ -70,6 +66,8 @@ foldRetrograde = foldMap' $ \case
               RetrogradeMap M.empty
             else
               RetrogradeMap $ M.fromList [(ephePlanet p1, singleton st)]
+    _ ->
+      RetrogradeMap M.empty
 
 
 isStationary :: ViewL PlanetStation -> Bool
