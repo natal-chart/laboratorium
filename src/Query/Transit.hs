@@ -10,8 +10,6 @@ import Data.Foldable (toList, Foldable (foldMap'))
 import Query.Common
 import Control.Lens (over, Each (each))
 import Data.Fixed (mod')
-import Data.Function ( (&) )
-import Data.Functor ((<&>))
 import Control.Monad (guard)
 
 type EphemerisPoint = (JulianDayTT, EphemerisPosition Double)
