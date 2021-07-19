@@ -66,21 +66,21 @@ aspects :: [Aspect]
 aspects = [conjunction, sextile, square, trine, opposition]
 
 
-transit
+mkTransit
   :: (EphemerisPoint, EphemerisPoint)
   -- ^ planet 1 at days 1->2
   -> (EphemerisPoint, EphemerisPoint)
   -- ^ planet 2 at days 1->2
   -> Maybe Transit
-transit transiting@((t1, p11), (t2, p12)) transited@((_t1', _p21), (_t2', p22))
+mkTransit transiting@((t1, p11), (t2, p12)) transited@((_t1', _p21), (_t2', p22))
   | isTransiting transiting transited = Nothing
   | otherwise = do
-    let points = (epheLongitude p11, epheLongitude p12, epheLongitude p22)
-        (before, after, ref) = normalize points
+    let (before, after, transitedPos) = (epheLongitude p11, epheLongitude p12, epheLongitude p22)
         station = movement transiting
-        rel = relation before after ref
+    (aspectName, angle', orb', meets) <- determineAspect after transitedPos
+    let (before', after', ref) = normalize (before, after, meets)
+        rel = relation before' after' ref
         phase = transitPhase station rel
-    (aspectName, angle', orb') <- determineAspect after ref
     pure $ Transit aspectName phase angle' orb' t1 t2
 
 
@@ -108,7 +108,7 @@ movement (_d1@(_t1, p1), _d2@(_t2, p2))
 
 -- | Given two moments of a moving planet, and a reference point
 -- determine if the moving planet remained above, below or crossed the
--- reference point; fails if the distance is infeasible
+-- reference point
 relation :: Double -> Double -> Double -> Relation
 relation p1 p2 ref
   |  p1 <  ref &&  p2 <  ref = Below
@@ -132,20 +132,29 @@ transitPhase StationaryRetrograde Crossed = TriggeredRetrograde
 transitPhase Retrograde Below = SeparatingRetrograde
 transitPhase StationaryRetrograde Below = SeparatingRetrograde
 
-determineAspect :: Double -> Double -> Maybe (AspectName, Double, Double)
+determineAspect :: Double -> Double -> Maybe (AspectName, Double, Double, Double)
 determineAspect p1 p2 =
-  headMaybe $ do  
+  headMaybe $ do
     asp <- aspects
     let dist = circleDistance p1 p2
         theta = angle asp
         orb = abs $ theta - dist
-    guard $ dist <= (theta + maxOrb asp) 
-    pure (aspectName asp, dist, orb) 
+        crossA = p2 + theta
+        crossB = p2 - theta
+        crossingPoint = clampCircle $
+          if circleDistance p1 crossA <= orb then crossA else crossB
+    guard $ abs (theta - dist) <= maxOrb asp
+    pure (aspectName asp, dist, orb, crossingPoint)
 
 headMaybe :: [a] -> Maybe a
 headMaybe [] = Nothing
 headMaybe xs = Just . head $ xs
 
+clampCircle :: Double -> Double
+clampCircle n =
+  rectified `mod'` 360
+  where
+    rectified = if n < 0 then n + 360 else n
 
 maxOrb :: Aspect -> Double
 maxOrb Aspect{orbApplying, orbSeparating} = max orbApplying orbSeparating

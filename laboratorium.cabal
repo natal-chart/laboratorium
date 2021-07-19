@@ -25,6 +25,8 @@ library
     Query.Main
     Query.Retrograde
     Query.Crossing
+    Query.Transit
+    Query.Common
 
   -- other-extensions:
   build-depends:

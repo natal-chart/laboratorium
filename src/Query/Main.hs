@@ -9,10 +9,10 @@ import Query.Retrograde
     ( RetrogradeMap(getRetrogradeMap),
       PlanetStation(PlanetStation, stationStarts, stationEnds,
                     stationType),
-      Station(Retrograde, Direct),
       PlanetStationSeq(getStations),
       windows,
       foldRetrograde )
+import Query.Common ( Station(Retrograde, Direct) )
 import Options.Applicative
 import OptionParser (dayReader)
 import qualified Data.Map as M
