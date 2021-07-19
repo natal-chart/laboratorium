@@ -76,9 +76,10 @@ mkTransit transiting@((t1, p11), (t2, p12)) transited@((_t1', _p21), (_t2', p22)
   | isTransiting transiting transited = Nothing
   | otherwise = do
     let (before, after, transitedPos) = (epheLongitude p11, epheLongitude p12, epheLongitude p22)
-        station = movement transiting
     (aspectName, angle', orb', meets) <- determineAspect after transitedPos
+
     let (before', after', ref) = normalize (before, after, meets)
+        station = movement transiting
         rel = relation before' after' ref
         phase = transitPhase station rel
     pure $ Transit aspectName phase angle' orb' t1 t2
