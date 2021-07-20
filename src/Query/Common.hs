@@ -43,3 +43,7 @@ isRelativelyStationary EphemerisPosition{ephePlanet, epheSpeed} =
 -- | Convert a degree unit to arcseconds
 degToSec :: Double -> Double
 degToSec = abs . (*3600)
+
+-- | Flipped 'map'. I've done too much Javascript.
+forEach :: [a] -> (a -> b) -> [b]
+forEach = flip map

@@ -1,16 +1,20 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE TupleSections #-}
 module Query.Transit where
 
-import Data.Sequence ((><), Seq(..), (|>), (<|), ViewL(..), ViewR(..))
+import Data.Sequence ((><), (|>), (<|), ViewL(..), ViewR(..))
 import qualified Data.Sequence as S
 import qualified Data.Map as M
 import SwissEphemeris
 import SwissEphemeris.Precalculated
-import Data.Foldable (toList, Foldable (foldMap'))
+import Data.Foldable (Foldable (foldMap'))
 import Query.Common
 import Control.Lens (over, Each (each))
 import Data.Fixed (mod')
-import Control.Monad (guard)
+import Control.Monad (guard, join)
+import Data.List (tails)
+import Control.Applicative (liftA2)
 
 type EphemerisPoint = (JulianDayTT, EphemerisPosition Double)
 
@@ -51,7 +55,31 @@ data Transit = Transit {
 , transitOrb :: !Double
 , transitStarts :: !JulianDayTT
 , transitEnds :: !JulianDayTT
-}
+} deriving (Show)
+
+newtype TransitSeq =
+  TransitSeq {getTransits :: S.Seq Transit}
+  deriving (Show)
+
+singleton :: Transit -> TransitSeq
+singleton = TransitSeq . S.singleton
+
+instance Semigroup TransitSeq where
+  (<>) = mergeTransitSeq 
+
+instance Monoid TransitSeq where
+  mempty = TransitSeq S.empty
+
+newtype TransitMap =
+  TransitMap {getTransitMap :: M.Map (Planet, Planet) TransitSeq}
+  deriving (Show)
+
+instance Semigroup TransitMap where
+  (TransitMap t1) <> (TransitMap t2) =
+    TransitMap $ M.unionWith (<>) t1 t2
+
+instance Monoid TransitMap where
+  mempty = TransitMap M.empty
 
 sextile, square, trine, opposition, conjunction :: Aspect
 conjunction = Aspect Conjunction 0 5 5
@@ -65,19 +93,76 @@ opposition = Aspect Opposition 180 5 5
 aspects :: [Aspect]
 aspects = [conjunction, sextile, square, trine, opposition]
 
+foldInterplanetaryTransits :: [[Either String (Ephemeris Double)]] -> TransitMap
+foldInterplanetaryTransits = foldMap' $ \case
+  (Right day1Ephe : Right day2Ephe : _) ->
+    mconcat $ forEach uniquePairs $ \pair@(planet1, planet2) ->
+      let planet1Ephe1 = (epheDate day1Ephe,) <$> forPlanet planet1 day1Ephe
+          planet1Ephe2 = (epheDate day2Ephe,) <$> forPlanet planet1 day2Ephe
+          planet2Ephe2 = (epheDate day2Ephe,) <$> forPlanet planet2 day2Ephe
+          planet1Ephes = liftA2 (,) planet1Ephe1 planet1Ephe2
+          transit' = join $ mkTransit <$> planet1Ephes <*> planet2Ephe2
+      in case transit' of
+        Nothing -> mempty
+        Just transit -> TransitMap $ M.fromList [(pair, singleton transit)]
+  _ ->
+    mempty
+
+mergeTransitSeq :: TransitSeq -> TransitSeq -> TransitSeq
+mergeTransitSeq (TransitSeq s1) (TransitSeq s2) =
+  TransitSeq $ doMerge s1Last s2First
+  where
+    s1Last  = S.viewr s1
+    s2First = S.viewl s2 
+    doMerge EmptyR EmptyL = mempty
+    doMerge EmptyR (x :< xs) = x <| xs
+    doMerge (xs :> x) EmptyL = xs |> x
+    doMerge (xs :> x) (y :< ys) =
+      if aspect x == aspect y && phase x == phase y then
+        (xs |> merged) >< ys
+      else
+        (xs |> x) >< (y <| ys) 
+      where
+        merged = x {
+          transitEnds = transitEnds y,
+          transitAngle = transitAngle y,
+          transitOrb = transitOrb y
+        }
+
+uniquePairs :: [(Planet, Planet)]
+uniquePairs =
+  [(p1, p2) | (p1:ps) <- tails planetsBySpeed, p2 <- ps]
+  where
+    -- planets sorted by their max average speed, descending.
+    planetsBySpeed = 
+      [ Moon
+      , Mercury 
+      , Venus
+      , Sun 
+      , Mars
+      , Jupiter
+      , MeanApog
+      , MeanNode
+      , Saturn
+      , Chiron
+      , Uranus
+      , Neptune
+      , Pluto
+      ]
+
+
 
 mkTransit
   :: (EphemerisPoint, EphemerisPoint)
   -- ^ planet 1 at days 1->2
-  -> (EphemerisPoint, EphemerisPoint)
-  -- ^ planet 2 at days 1->2
+  -> EphemerisPoint
+  -- ^ planet 2 at day 2
   -> Maybe Transit
-mkTransit transiting@((t1, p11), (t2, p12)) transited@((_t1', _p21), (_t2', p22))
-  | isTransiting transiting transited = Nothing
+mkTransit transiting@((t1, p11), (t2, p12)) transited@(_t2', p22)
+  | not $ isTransiting (snd transiting) transited = Nothing
   | otherwise = do
     let (before, after, transitedPos) = (epheLongitude p11, epheLongitude p12, epheLongitude p22)
     (aspectName, angle', orb', meets) <- determineAspect after transitedPos
-
     let (before', after', ref) = normalize (before, after, meets)
         station = movement transiting
         rel = relation before' after' ref
@@ -91,21 +176,24 @@ mkTransit transiting@((t1, p11), (t2, p12)) transited@((_t1', _p21), (_t2', p22)
 
 -- | Given two moments of movement for two separate planets/body,
 -- determine which is to be considered the "fastest"
-isTransiting :: (EphemerisPoint, EphemerisPoint) -> (EphemerisPoint, EphemerisPoint) -> Bool
-isTransiting _p1@(_, (_,p12)) _p2@(_, (_,p22)) =
-  epheSpeed p22 <= epheSpeed p12
+isTransiting :: EphemerisPoint -> EphemerisPoint -> Bool
+isTransiting (_,p12) (_,p22) =
+  absSpeed p22 <= absSpeed p12
+
+absSpeed :: EphemerisPosition Double -> Double
+absSpeed = abs . epheSpeed
 
 -- | Given two moments of movement for a given planet/body,
 -- determine the "character" thereof
 movement :: (EphemerisPoint, EphemerisPoint) -> Station
-movement (_d1@(_t1, p1), _d2@(_t2, p2))
+movement (_d1@(_t1, _p1), _d2@(_t2, p2))
   | isRelativelyStationary p2 =
-    if epheSpeed p1 > epheSpeed p2 then
-      StationaryRetrograde
-    else
+    if signum (epheSpeed p2) > 0 then
       StationaryDirect
-  | epheSpeed p1 > epheSpeed p2 = Retrograde
-  | otherwise = Direct
+    else
+      StationaryRetrograde
+  | signum (epheSpeed p2) > 0 = Direct 
+  | otherwise = Retrograde
 
 -- | Given two moments of a moving planet, and a reference point
 -- determine if the moving planet remained above, below or crossed the

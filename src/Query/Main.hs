@@ -19,10 +19,12 @@ import qualified Data.Map as M
 import Control.Monad (forM_)
 import Text.Read (readMaybe)
 import Query.Crossing (foldCrossings, CrossingMap (getCrossingMap), CrossingSeq (getCrossings), Crossing(..))
+import Query.Transit
 
 data QueryType
   = Retrogrades
   | Crossings
+  | Transits
   deriving (Show, Read)
 
 data Options = Options
@@ -48,6 +50,7 @@ main Options{optRangeStart, optRangeEnd, query} = do
   case query of
     Retrogrades -> doRetrogrades ephe
     Crossings -> doCrossings ephe
+    Transits -> doTransits ephe
 
 
 doRetrogrades :: IntervalEphemeris -> IO ()
@@ -94,6 +97,16 @@ doCrossings ephe = do
             pure $ show starts' <> " - " <> show ends'
       putStrLn $ "In " <> show (signName crossingSubject) <> " ( " <> interval <> ")"
 
+doTransits :: IntervalEphemeris -> IO ()
+doTransits ephe = do
+  let allTransits = foldInterplanetaryTransits $ windows 2 ephe
+  forM_ (M.toAscList (getTransitMap allTransits)) $ \(bodies@(_transiting, _transited), transits) -> do
+    print bodies
+    putStrLn "-----------"
+    forM_ (getTransits transits) $ \Transit{aspect,phase,transitOrb,transitStarts,transitEnds} -> do
+      startsUT <- fromJulianDay transitStarts :: IO UTCTime
+      endsUT   <- fromJulianDay transitEnds   :: IO UTCTime
+      print (startsUT, endsUT, aspect, phase, transitOrb)
 
 
 -- | Get all days in the given range, as @JulianDayTT@s
