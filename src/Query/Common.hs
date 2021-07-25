@@ -4,6 +4,9 @@ module Query.Common where
 
 import SwissEphemeris.Precalculated
 import SwissEphemeris
+import qualified Data.Sequence as S
+import Data.Foldable (toList)
+import Data.Sequence ((|>))
 
 data Station
   = StationaryRetrograde
@@ -47,3 +50,16 @@ degToSec = abs . (*3600)
 -- | Flipped 'map'. I've done too much Javascript.
 forEach :: [a] -> (a -> b) -> [b]
 forEach = flip map
+-- from:
+-- https://stackoverflow.com/a/27727244
+windows :: Int -> [a] -> [[a]]
+windows n0 = go 0 S.empty
+  where
+    go n s (a:as) | n' <  n0   =              go n' s'  as
+                  | n' == n0   = toList s'  : go n' s'  as
+                  | otherwise =  toList s'' : go n  s'' as
+      where
+        n'  = n + 1         -- O(1)
+        s'  = s |> a        -- O(1)
+        s'' = S.drop 1 s' -- O(1)
+    go _ _ [] = []

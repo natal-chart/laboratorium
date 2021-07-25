@@ -113,9 +113,15 @@ foldInterplanetaryTransits = foldMap' $ \case
   _ ->
     mempty
 
-interplanetaryTransits :: QueryArr [Either String (Ephemeris Double)] (Aggregate (Planet, Planet) TransitSeq)
+planetWindows :: QueryArr [Either String (Ephemeris Double)] [Ephemeris Double]
+planetWindows = arr $ \ephe ->
+  case sequenceA ephe of
+    Left _err -> []
+    Right allGood -> allGood
+
+interplanetaryTransits :: QueryArr [Ephemeris Double] (Aggregate (Planet, Planet) TransitSeq)
 interplanetaryTransits = arr $ \case
-  (Right day1Ephe : Right day2Ephe : _) ->
+  (day1Ephe : day2Ephe : _) ->
     mconcat $ forEach uniquePairs $ \pair@(planet1, planet2) ->
       let planet1Ephe1 = (epheDate day1Ephe,) <$> forPlanet planet1 day1Ephe
           planet1Ephe2 = (epheDate day2Ephe,) <$> forPlanet planet1 day2Ephe
@@ -129,7 +135,7 @@ interplanetaryTransits = arr $ \case
     mempty
 
 foldTransits :: [[Either String (Ephemeris Double)]] -> Aggregate (Planet, Planet) TransitSeq
-foldTransits = runQuery interplanetaryTransits
+foldTransits = runQuery $ planetWindows >>> interplanetaryTransits
 
 mergeTransitSeq :: TransitSeq -> TransitSeq -> TransitSeq
 mergeTransitSeq (TransitSeq s1) (TransitSeq s2) =
