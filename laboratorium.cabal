@@ -27,6 +27,7 @@ library
     Query.Crossing
     Query.Transit
     Query.Common
+    Query.QueryArr
 
   -- other-extensions:
   build-depends:

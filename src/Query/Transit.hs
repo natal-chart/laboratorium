@@ -15,6 +15,8 @@ import Data.Fixed (mod')
 import Control.Monad (guard, join)
 import Data.List (tails)
 import Control.Applicative (liftA2)
+import Query.QueryArr
+import Control.Arrow
 
 type EphemerisPoint = (JulianDayTT, EphemerisPosition Double)
 
@@ -65,7 +67,10 @@ singleton :: Transit -> TransitSeq
 singleton = TransitSeq . S.singleton
 
 instance Semigroup TransitSeq where
-  (<>) = mergeTransitSeq 
+  (<>) = mergeTransitSeq
+
+instance HasUnion TransitSeq where
+  union = mergeTransitSeq
 
 instance Monoid TransitSeq where
   mempty = TransitSeq S.empty
@@ -108,12 +113,30 @@ foldInterplanetaryTransits = foldMap' $ \case
   _ ->
     mempty
 
+interplanetaryTransits :: QueryArr [Either String (Ephemeris Double)] (Aggregate (Planet, Planet) TransitSeq)
+interplanetaryTransits = arr $ \case
+  (Right day1Ephe : Right day2Ephe : _) ->
+    mconcat $ forEach uniquePairs $ \pair@(planet1, planet2) ->
+      let planet1Ephe1 = (epheDate day1Ephe,) <$> forPlanet planet1 day1Ephe
+          planet1Ephe2 = (epheDate day2Ephe,) <$> forPlanet planet1 day2Ephe
+          planet2Ephe2 = (epheDate day2Ephe,) <$> forPlanet planet2 day2Ephe
+          planet1Ephes = liftA2 (,) planet1Ephe1 planet1Ephe2
+          transit' = join $ mkTransit <$> planet1Ephes <*> planet2Ephe2
+      in case transit' of
+        Nothing -> mempty
+        Just transit -> Aggregate $ M.fromList [(pair, singleton transit)]
+  _ ->
+    mempty
+
+foldTransits :: [[Either String (Ephemeris Double)]] -> Aggregate (Planet, Planet) TransitSeq
+foldTransits = runQuery interplanetaryTransits
+
 mergeTransitSeq :: TransitSeq -> TransitSeq -> TransitSeq
 mergeTransitSeq (TransitSeq s1) (TransitSeq s2) =
   TransitSeq $ doMerge s1Last s2First
   where
     s1Last  = S.viewr s1
-    s2First = S.viewl s2 
+    s2First = S.viewl s2
     doMerge EmptyR EmptyL = mempty
     doMerge EmptyR (x :< xs) = x <| xs
     doMerge (xs :> x) EmptyL = xs |> x
@@ -121,7 +144,7 @@ mergeTransitSeq (TransitSeq s1) (TransitSeq s2) =
       if aspect x == aspect y && phase x == phase y then
         (xs |> merged) >< ys
       else
-        (xs |> x) >< (y <| ys) 
+        (xs |> x) >< (y <| ys)
       where
         merged = x {
           transitEnds = transitEnds y,
@@ -134,11 +157,11 @@ uniquePairs =
   [(p1, p2) | (p1:ps) <- tails planetsBySpeed, p2 <- ps]
   where
     -- planets sorted by their max average speed, descending.
-    planetsBySpeed = 
+    planetsBySpeed =
       [ Moon
-      , Mercury 
+      , Mercury
       , Venus
-      , Sun 
+      , Sun
       , Mars
       , Jupiter
       , MeanApog
@@ -192,7 +215,7 @@ movement (_d1@(_t1, _p1), _d2@(_t2, p2))
       StationaryDirect
     else
       StationaryRetrograde
-  | signum (epheSpeed p2) > 0 = Direct 
+  | signum (epheSpeed p2) > 0 = Direct
   | otherwise = Retrograde
 
 -- | Given two moments of a moving planet, and a reference point
