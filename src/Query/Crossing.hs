@@ -1,6 +1,8 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DerivingVia #-}
 module Query.Crossing where
 
 import SwissEphemeris
@@ -8,9 +10,16 @@ import Data.Sequence ((><), Seq(..), (|>), (<|), ViewL(..), ViewR(..))
 import qualified Data.Sequence as S
 import SwissEphemeris.Precalculated
 import qualified Data.Map as M
-import Data.Foldable (Foldable(foldMap', toList))
+import Data.Foldable (Foldable(toList))
 import Data.Maybe (mapMaybe)
+import Query.Aggregate
+import Streaming (Stream, Of)
+import qualified Streaming.Prelude as St
+import Control.Category ((>>>))
+import Query.Streaming
+import Query.Common (concatForEach)
 
+-- TODO: remove this?
 data SimplePlanetStation = Retrograde | Direct
   deriving (Eq, Show)
 
@@ -24,49 +33,40 @@ data Crossing a = Crossing
 
 newtype CrossingSeq a =
   CrossingSeq { getCrossings :: S.Seq (Crossing a)}
-  deriving (Show)
+  deriving stock (Show)
+  deriving (Semigroup, Monoid) via (S.Seq (Crossing a))
 
 singleton :: Crossing a -> CrossingSeq a
 singleton = CrossingSeq . S.singleton
 
-instance HasEclipticLongitude  a => Semigroup (CrossingSeq a) where
-  (CrossingSeq s1) <> (CrossingSeq s2) =
+instance HasEclipticLongitude  a => HasUnion (CrossingSeq a) where
+  (CrossingSeq s1) `union` (CrossingSeq s2) =
     let s1Last = S.viewr s1
         s2First = S.viewl s2
     in CrossingSeq $ mergeCrossingEvents s1Last s2First
 
-instance HasEclipticLongitude  a => Monoid (CrossingSeq a) where
-  mempty = CrossingSeq S.empty
+type CrossingMap a = Aggregate Planet (CrossingSeq a)
 
-newtype CrossingMap a =
-  CrossingMap { getCrossingMap :: M.Map Planet (CrossingSeq a)}
-  deriving (Show)
+crossings :: (Monad m, HasEclipticLongitude a) => [a] -> Stream (Of (Ephemeris Double)) m b -> m (Of (CrossingMap a) b)
+crossings degs =
+  ephemerisWindows 2 >>> St.foldMap (mapCrossings degs)
 
-instance HasEclipticLongitude  a => Semigroup (CrossingMap a) where
-  (CrossingMap c1) <> (CrossingMap c2) =
-    CrossingMap $ M.unionWith (<>) c1 c2
+mapCrossings :: HasEclipticLongitude a => [a] -> Seq (Ephemeris Double) -> CrossingMap a
+mapCrossings degreesToCross (pos1 :<| pos2 :<| _) =
+  concatForEach (zip (toList $ ephePositions pos1) (toList $ ephePositions pos2)) $ \(p1, p2) ->
+    -- the Moon crosses most of the ecliptic every month, so it's not
+    -- really significant. The nodes do have a slower behavior, so maybe
+    -- I'll reinstate them.
+    if ephePlanet p1 `elem` [Moon, TrueNode, MeanNode] then
+      mempty
+    else
+      Aggregate
+        $ M.fromList
+        $ map (\c -> (ephePlanet p1, singleton c))
+        $ mapMaybe (mkCrossing (epheDate pos1, p1) (epheDate pos2, p2))
+        degreesToCross
 
-instance HasEclipticLongitude  a => Monoid (CrossingMap a) where
-  mempty = CrossingMap M.empty
-
-foldCrossings :: HasEclipticLongitude  a => [a] -> [[Either String (Ephemeris Double)]] -> CrossingMap a
-foldCrossings degreesToCross = foldMap' $ \case
-  (Right pos1 : Right pos2 : _) ->
-    mconcat $ flip map (zip (toList $ ephePositions pos1) (toList $ ephePositions pos2)) $ \(p1, p2) ->
-      -- the Moon crosses most of the ecliptic every month, so it's not
-      -- really significant. The nodes do have a slower behavior, so maybe
-      -- I'll reinstate them.
-      if ephePlanet p1 `elem` [Moon, TrueNode, MeanNode] then
-        CrossingMap M.empty
-      else
-        CrossingMap
-          $ M.fromList
-          $ map (\c -> (ephePlanet p1, singleton c))
-          $ mapMaybe (mkCrossing (epheDate pos1, p1) (epheDate pos2, p2))
-          degreesToCross
-  _ ->
-    CrossingMap M.empty
-
+mapCrossings _ _ = mempty
 
 mergeCrossingEvents :: HasEclipticLongitude  a => ViewR (Crossing a) -> ViewL (Crossing a) -> Seq (Crossing a)
 mergeCrossingEvents EmptyR EmptyL = S.empty

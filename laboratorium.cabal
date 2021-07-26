@@ -27,7 +27,9 @@ library
     Query.Crossing
     Query.Transit
     Query.Common
-    Query.QueryArr
+    Query.Aggregate
+    Query.Streaming
+    Query.PlanetEphe
 
   -- other-extensions:
   build-depends:

@@ -4,9 +4,10 @@ module Query.Common where
 
 import SwissEphemeris.Precalculated
 import SwissEphemeris
-import qualified Data.Sequence as S
-import Data.Foldable (toList)
+import Data.Foldable (toList, Foldable (foldMap'))
 import Data.Sequence ((|>))
+import qualified Data.Sequence as Sq
+import Data.Time
 
 data Station
   = StationaryRetrograde
@@ -50,10 +51,15 @@ degToSec = abs . (*3600)
 -- | Flipped 'map'. I've done too much Javascript.
 forEach :: [a] -> (a -> b) -> [b]
 forEach = flip map
+
+-- | Flipped 'foldMap\''. 
+concatForEach :: Monoid a1 => [a2] -> (a2 -> a1) -> a1
+concatForEach = flip foldMap'
+
 -- from:
 -- https://stackoverflow.com/a/27727244
 windows :: Int -> [a] -> [[a]]
-windows n0 = go 0 S.empty
+windows n0 = go 0 Sq.empty
   where
     go n s (a:as) | n' <  n0   =              go n' s'  as
                   | n' == n0   = toList s'  : go n' s'  as
@@ -61,5 +67,14 @@ windows n0 = go 0 S.empty
       where
         n'  = n + 1         -- O(1)
         s'  = s |> a        -- O(1)
-        s'' = S.drop 1 s' -- O(1)
+        s'' = Sq.drop 1 s' -- O(1)
     go _ _ [] = []
+
+julianDayRange :: Day -> Day -> [JulianDayTT]
+julianDayRange startDay endDay =
+  [start .. end]
+  where
+    (startY, startM, startD) = toGregorian startDay
+    (endY, endM, endD) = toGregorian endDay
+    start = gregorianToFakeJulianDayTT startY startM startD 0
+    end = gregorianToFakeJulianDayTT endY endM endD 0

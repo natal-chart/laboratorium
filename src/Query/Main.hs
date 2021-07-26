@@ -3,23 +3,20 @@ module Query.Main where
 
 import Data.Time
 import SwissEphemeris
-import Data.Traversable (for)
 import SwissEphemeris.Precalculated
 import Query.Retrograde
-    ( RetrogradeMap(getRetrogradeMap),
-      PlanetStation(PlanetStation, stationStarts, stationEnds,
-                    stationType),
-      PlanetStationSeq(getStations),
-      windows,
-      foldRetrograde )
 import Query.Common ( Station(Retrograde, Direct) )
 import Options.Applicative
 import OptionParser (dayReader)
 import qualified Data.Map as M
 import Control.Monad (forM_)
 import Text.Read (readMaybe)
-import Query.Crossing (foldCrossings, CrossingMap (getCrossingMap), CrossingSeq (getCrossings), Crossing(..))
+import Query.Crossing
 import Query.Transit
+import Query.Streaming (streamEpheF)
+import Query.Aggregate
+import Data.Function
+import Streaming (Stream, Of, Of((:>)))
 
 data QueryType
   = Retrogrades
@@ -34,6 +31,7 @@ data Options = Options
   }
 
 type IntervalEphemeris = [Either String (Ephemeris Double)]
+type EphemerisStream = Stream (Of (Ephemeris Double)) IO ()
 
 data Zodiac = Zodiac 
   { signName :: ZodiacSignName, signLng :: Double}
@@ -45,43 +43,42 @@ instance HasEclipticLongitude Zodiac where
 
 main :: Options -> IO ()
 main Options{optRangeStart, optRangeEnd, query} = do
-  let days = julianDayRange optRangeStart optRangeEnd
-  ephe <- for days (readEphemerisEasy False)
+  let epheStream = streamEpheF optRangeStart optRangeEnd 
   case query of
-    Retrogrades -> doRetrogrades ephe
-    Crossings -> doCrossings ephe
-    Transits -> doTransits ephe
+    Retrogrades -> doRetrogrades epheStream
+    Crossings -> doCrossings epheStream
+    Transits -> doTransits epheStream
 
 
-doRetrogrades :: IntervalEphemeris -> IO ()
+doRetrogrades :: EphemerisStream -> IO ()
 doRetrogrades ephe = do
-  let retro = foldRetrograde (windows 2 ephe)
+  retro :> _ <- ephe & retrogrades
   -- retrogrades for 2020: https://www.findyourfate.com/astrology/year2020/2020-planetretrogrades.html
-  forM_ (M.toAscList (getRetrogradeMap retro)) $ \(planet, stations) -> do
+  forM_ (M.toAscList (getAggregate retro)) $ \(planet, stations) -> do
     print planet
     putStrLn "-----------"
     forM_ (getStations stations) $ \PlanetStation{stationStarts, stationEnds, stationType} -> do
       startsUT <- fromJulianDay stationStarts :: IO UTCTime
       endsUT <- fromJulianDay stationEnds :: IO UTCTime
       let interval =
-            if stationType `elem` [Direct, Retrograde] then
+            if stationType `elem` [Query.Common.Direct, Query.Common.Retrograde] then
               show endsUT
             else
               show startsUT <> " - " <> show endsUT
       putStrLn $ show stationType <> " ( " <> interval <> ")"
 
-doCrossings:: IntervalEphemeris -> IO ()
+doCrossings:: EphemerisStream -> IO ()
 doCrossings ephe = do
   let zodiacs = take 12 $ iterate (+ 30) 0
       signs = zipWith Zodiac [Aries .. Pisces] zodiacs
-      cross = foldCrossings signs (windows 2 ephe)
+  cross :> _ <- ephe & crossings signs
   -- crossings for 2020:
   -- https://cafeastrology.com/astrology-of-2020.html
-  forM_ (M.toAscList (getCrossingMap cross)) $ \(planet, crossings) -> do
+  forM_ (M.toAscList (getAggregate cross)) $ \(planet, crossings') -> do
     putStrLn ""
     print planet
     putStrLn "-----------"
-    forM_ (getCrossings crossings) $ \Crossing{crossingEnters, crossingExits, crossingSubject} -> do
+    forM_ (getCrossings crossings') $ \Crossing{crossingEnters, crossingExits, crossingSubject} -> do
       let startsUT = fromJulianDay <$> crossingEnters :: (Maybe (IO UTCTime))
           endsUT = fromJulianDay <$> crossingExits :: (Maybe (IO UTCTime))
       interval <-
@@ -97,10 +94,10 @@ doCrossings ephe = do
             pure $ show starts' <> " - " <> show ends'
       putStrLn $ "In " <> show (signName crossingSubject) <> " ( " <> interval <> ")"
 
-doTransits :: IntervalEphemeris -> IO ()
+doTransits :: EphemerisStream -> IO ()
 doTransits ephe = do
-  let allTransits = foldInterplanetaryTransits $ windows 2 ephe
-  forM_ (M.toAscList (getTransitMap allTransits)) $ \(bodies@(_transiting, _transited), transits) -> do
+  allTransits :> _ <- ephe & interplanetaryTransits
+  forM_ (M.toAscList (getAggregate allTransits)) $ \(bodies@(_transiting, _transited), transits) -> do
     print bodies
     putStrLn "-----------"
     forM_ (getTransits transits) $ \Transit{aspect,phase,transitOrb,transitStarts,transitEnds} -> do

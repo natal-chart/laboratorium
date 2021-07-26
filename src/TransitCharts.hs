@@ -5,7 +5,7 @@
 
 module TransitCharts where
 
-import Data.Foldable (forM_, traverse_, Foldable (toList, foldMap'))
+import Data.Foldable (forM_, traverse_, Foldable (toList))
 import Data.Maybe (mapMaybe, fromMaybe)
 import Data.Time
   ( Day,
@@ -34,26 +34,17 @@ import SwissEphemeris
     ZodiacSignName (..), ToJulianDay (toJulianDay), gregorianToFakeJulianDayTT, FromJulianDay (fromJulianDay)
   )
 import Text.Read (readMaybe)
-import SwissEphemeris.Precalculated (readEphemerisEasy, forPlanet, EphemerisPosition (EphemerisPosition, epheLongitude, ephePlanet), Ephemeris(..))
-import Control.Monad (forM)
+import SwissEphemeris.Precalculated (readEphemerisEasy, forPlanet, EphemerisPosition (EphemerisPosition, epheLongitude))
 import qualified Data.Map as M
 import OptionParser ( dayReader, datetimeReader )
+import Query.PlanetEphe
+import qualified Streaming.Prelude as S
+import Query.Streaming
+import Query.Aggregate
+import qualified Data.Bifunctor as B
 
 
 data Line = Solid | Dotted
-
--- newtype idea from:
--- https://stackoverflow.com/questions/32160350/folding-over-a-list-and-counting-all-occurrences-of-arbitrarily-many-unique-and
-newtype PlanetMap =
-  PlanetMap {getPlanetMap :: M.Map Planet [(UTCTime, Double)]}
-  deriving (Eq, Ord, Show)
-
-instance Semigroup PlanetMap where
-  (PlanetMap p1) <> (PlanetMap p2) =
-    PlanetMap $ M.unionWith (<>) p1 p2
-
-instance Monoid PlanetMap where
-  mempty = PlanetMap M.empty
 
 deriving instance Read Planet
 
@@ -69,7 +60,7 @@ data Options = Options
   }
 
 main :: Options -> IO ()
-main Options {optBirthday, optRangeStart, optRangeEnd, optNatalPlanets}= do
+main Options {optBirthday, optRangeStart, optRangeEnd, optNatalPlanets} = do
   let days = julianDays optRangeStart optRangeEnd
       natalPlanets = optNatalPlanets
 
@@ -77,18 +68,16 @@ main Options {optBirthday, optRangeStart, optRangeEnd, optNatalPlanets}= do
   utcDays <- sequence $ fromJulianDay <$> days
   let allDays = zip days utcDays
   transitedEphe <- readEphemerisEasy False julian
-  transitingEphe <- forM allDays $ \(dtt, dut) -> do
-    transit <- readEphemerisEasy False dtt
-    pure (dut, transit)
+  transitingEphe S.:> _ <- streamEpheF optRangeStart optRangeEnd & planetEphemeris
 
   case transitedEphe of
     Left err -> fail err
     Right ephe -> do
       let transited = fromMaybe [] $ traverse (`forPlanet` ephe) natalPlanets
-      traverse_ (transitChart allDays (foldEphemeris transitingEphe)) transited
+      traverse_ (transitChart allDays transitingEphe) transited
 
-transitChart :: [(JulianDayTT, UTCTime)] -> PlanetMap -> EphemerisPosition Double -> IO ()
-transitChart transitRange transits natalEphe@(EphemerisPosition transited natalPos _spd) = do
+transitChart :: [(JulianDayTT, UTCTime)] -> PlanetEphe -> EphemerisPosition Double -> IO ()
+transitChart transitRange (Aggregate transits) natalEphe@(EphemerisPosition transited natalPos _spd) = do
   toFile def ("charts/" <> show transited <> "_transits.svg") $ do
     layoutlr_title .= "Transits to " <> show transited
     -- hide axis guidelines -- too much noise
@@ -114,7 +103,7 @@ transitChart transitRange transits natalEphe@(EphemerisPosition transited natalP
           (show transitingP)
           (opaque $ planetColor transitingP)
           (planetLineStyle transitingP)
-          (M.findWithDefault [] transitingP (getPlanetMap transits))
+          (extractPositions $ M.findWithDefault mempty transitingP transits)
 
     -- plot the original natal position line
     plotLeft $
@@ -123,17 +112,10 @@ transitChart transitRange transits natalEphe@(EphemerisPosition transited natalP
         (opaque green)
         [natalPos]
 
--- | Given a time series of @[(utcTime, allPlanetLocationsThatDay)]@, produce
--- a mapping of @Planet@ to all of its positions across the time series; essentially
--- "ungrouping" the positions.
-foldEphemeris :: [(UTCTime, Either String (Ephemeris Double))] -> PlanetMap
-foldEphemeris = foldMap' $ \(ut, maybeEphe) ->
-  mconcat $ forEach (toList $ either mempty ephePositions maybeEphe) $ \pos ->
-    PlanetMap $ M.fromList [(ephePlanet pos, [(ut, epheLongitude pos)])]
-
--- | Sorry...
-forEach :: [a] -> (a -> b) -> [b]
-forEach = flip map
+extractPositions :: PlanetPositionSeq -> [(UTCTime, Double)]
+extractPositions (PlanetPositionSeq s) =
+  fmap (B.second epheLongitude) s
+  & toList
 
 fbetween ::
   String ->
@@ -254,7 +236,7 @@ toLongitude e
 groupWhen :: (a -> a -> Bool) -> [a] -> [[a]]
 groupWhen _ [ ] = []
 groupWhen _ [x] = [[x]]
-groupWhen p (c:cs) = r : groupWhen p xs' 
+groupWhen p (c:cs) = r : groupWhen p xs'
   where
   (r,xs') = run c cs
   cons' x (xs,y) = (x:xs,y)

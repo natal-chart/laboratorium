@@ -1,5 +1,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DerivingVia #-}
 module Query.Retrograde where
 
 import Data.Sequence ((><), Seq(..), (|>), (<|), ViewL(..), ViewR(..))
@@ -7,8 +9,14 @@ import qualified Data.Sequence as S
 import qualified Data.Map as M
 import SwissEphemeris
 import SwissEphemeris.Precalculated
-import Data.Foldable (toList, Foldable (foldMap'))
+import Data.Foldable (toList)
 import Query.Common
+    ( isRelativelyStationary, Station(..), concatForEach )
+import Query.Aggregate ( Aggregate(Aggregate), HasUnion(..) )
+import Streaming ( Of, Stream )
+import qualified Streaming.Prelude as St
+import Query.Streaming ( ephemerisWindows )
+import Control.Arrow ((>>>))
 
 data PlanetStation = PlanetStation
   { stationStarts :: !JulianDayTT
@@ -19,13 +27,14 @@ data PlanetStation = PlanetStation
 
 newtype PlanetStationSeq =
   PlanetStationSeq {getStations :: S.Seq PlanetStation}
-  deriving (Show)
+  deriving stock (Show)
+  deriving (Semigroup , Monoid) via (S.Seq PlanetStation)
 
 singleton :: PlanetStation -> PlanetStationSeq
 singleton = PlanetStationSeq . S.singleton
 
-instance Semigroup PlanetStationSeq where
-  (PlanetStationSeq s1) <> (PlanetStationSeq s2) =
+instance HasUnion PlanetStationSeq where
+  (PlanetStationSeq s1) `union` (PlanetStationSeq s2) =
     let s1Last = S.viewr s1
         s2First = S.viewl s2
     in if isStationary s2First then
@@ -33,36 +42,26 @@ instance Semigroup PlanetStationSeq where
     else
       PlanetStationSeq $ s1 <> s2
 
-instance Monoid PlanetStationSeq where
-  mempty = PlanetStationSeq S.empty
+type RetrogradeMap = Aggregate Planet PlanetStationSeq
 
-newtype RetrogradeMap =
-  RetrogradeMap {getRetrogradeMap :: M.Map Planet PlanetStationSeq}
-  deriving (Show)
+retrogrades :: Monad m => Stream (Of (Ephemeris Double)) m b -> m (Of RetrogradeMap b)
+retrogrades =
+  ephemerisWindows 2 >>> St.foldMap mapRetrogrades
 
-instance Semigroup RetrogradeMap where
-  (RetrogradeMap p1) <> (RetrogradeMap p2) =
-    RetrogradeMap $ M.unionWith (<>) p1 p2
+mapRetrogrades :: Seq (Ephemeris Double) -> RetrogradeMap
+mapRetrogrades (pos1 :<| pos2 :<| _) =
+  concatForEach (zip (toList $ ephePositions pos1) (toList $ ephePositions pos2)) $ \(p1, p2) ->
+    case mkStation (epheDate pos1, p1) (epheDate pos2, p2) of
+     Nothing -> mempty
+     Just st -> 
+       -- the MeanNode /appears/ direct/retrograde sometimes,
+       -- but that's not astrologically significant.
+       if ephePlanet p1 `elem` [MeanNode, TrueNode] then
+         mempty
+       else
+         Aggregate $ M.fromList [(ephePlanet p1, singleton st)]
 
-instance Monoid RetrogradeMap where
-  mempty = RetrogradeMap M.empty
-
-foldRetrograde :: [[Either String (Ephemeris Double)]] -> RetrogradeMap
-foldRetrograde = foldMap' $ \case
-    (Right pos1 : Right pos2 : _) ->
-      mconcat $ flip map (zip (toList $ ephePositions pos1) (toList $ ephePositions pos2)) $ \(p1, p2) ->
-        case mkStation (epheDate pos1, p1) (epheDate pos2, p2) of
-          Nothing -> RetrogradeMap M.empty
-          Just st -> 
-            -- the MeanNode /appears/ direct/retrograde sometimes,
-            -- but that's not astrologically significant.
-            if ephePlanet p1 `elem` [MeanNode, TrueNode] then
-              RetrogradeMap M.empty
-            else
-              RetrogradeMap $ M.fromList [(ephePlanet p1, singleton st)]
-    _ ->
-      RetrogradeMap M.empty
-
+mapRetrogrades _ = mempty
 
 isStationary :: ViewL PlanetStation -> Bool
 isStationary EmptyL = False
@@ -101,17 +100,3 @@ mkStation (d1, pos1) (d2, pos2)
       }
   | otherwise =
   Nothing
-
--- from:
--- https://stackoverflow.com/a/27727244
-windows :: Int -> [a] -> [[a]]
-windows n0 = go 0 S.empty
-  where
-    go n s (a:as) | n' <  n0   =              go n' s'  as
-                  | n' == n0   = toList s'  : go n' s'  as
-                  | otherwise =  toList s'' : go n  s'' as
-      where
-        n'  = n + 1         -- O(1)
-        s'  = s |> a        -- O(1)
-        s'' = S.drop 1 s' -- O(1)
-    go _ _ [] = []

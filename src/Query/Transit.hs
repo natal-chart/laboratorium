@@ -1,22 +1,25 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DerivingVia #-}
 module Query.Transit where
 
-import Data.Sequence ((><), (|>), (<|), ViewL(..), ViewR(..))
+import Data.Sequence ((><), (|>), (<|), ViewL(..), ViewR(..), Seq ((:<|)))
 import qualified Data.Sequence as S
+import qualified Streaming.Prelude as St
 import qualified Data.Map as M
 import SwissEphemeris
 import SwissEphemeris.Precalculated
-import Data.Foldable (Foldable (foldMap'))
 import Query.Common
 import Control.Lens (over, Each (each))
 import Data.Fixed (mod')
 import Control.Monad (guard, join)
 import Data.List (tails)
 import Control.Applicative (liftA2)
-import Query.QueryArr
-import Control.Arrow
+import Query.Aggregate
+import Query.Streaming
+import Control.Category ((>>>))
 
 type EphemerisPoint = (JulianDayTT, EphemerisPosition Double)
 
@@ -61,30 +64,16 @@ data Transit = Transit {
 
 newtype TransitSeq =
   TransitSeq {getTransits :: S.Seq Transit}
-  deriving (Show)
+  deriving stock (Show)
+  deriving (Semigroup, Monoid) via (S.Seq Transit) 
 
 singleton :: Transit -> TransitSeq
 singleton = TransitSeq . S.singleton
 
-instance Semigroup TransitSeq where
-  (<>) = mergeTransitSeq
-
 instance HasUnion TransitSeq where
   union = mergeTransitSeq
 
-instance Monoid TransitSeq where
-  mempty = TransitSeq S.empty
-
-newtype TransitMap =
-  TransitMap {getTransitMap :: M.Map (Planet, Planet) TransitSeq}
-  deriving (Show)
-
-instance Semigroup TransitMap where
-  (TransitMap t1) <> (TransitMap t2) =
-    TransitMap $ M.unionWith (<>) t1 t2
-
-instance Monoid TransitMap where
-  mempty = TransitMap M.empty
+type TransitMap = Aggregate (Planet, Planet) TransitSeq
 
 sextile, square, trine, opposition, conjunction :: Aspect
 conjunction = Aspect Conjunction 0 5 5
@@ -98,31 +87,14 @@ opposition = Aspect Opposition 180 5 5
 aspects :: [Aspect]
 aspects = [conjunction, sextile, square, trine, opposition]
 
-foldInterplanetaryTransits :: [[Either String (Ephemeris Double)]] -> TransitMap
-foldInterplanetaryTransits = foldMap' $ \case
-  (Right day1Ephe : Right day2Ephe : _) ->
-    mconcat $ forEach uniquePairs $ \pair@(planet1, planet2) ->
-      let planet1Ephe1 = (epheDate day1Ephe,) <$> forPlanet planet1 day1Ephe
-          planet1Ephe2 = (epheDate day2Ephe,) <$> forPlanet planet1 day2Ephe
-          planet2Ephe2 = (epheDate day2Ephe,) <$> forPlanet planet2 day2Ephe
-          planet1Ephes = liftA2 (,) planet1Ephe1 planet1Ephe2
-          transit' = join $ mkTransit <$> planet1Ephes <*> planet2Ephe2
-      in case transit' of
-        Nothing -> mempty
-        Just transit -> TransitMap $ M.fromList [(pair, singleton transit)]
-  _ ->
-    mempty
+interplanetaryTransits :: Monad m => St.Stream (St.Of (Ephemeris Double)) m b -> m (St.Of TransitMap b)
+interplanetaryTransits =
+  ephemerisWindows 2
+  >>> St.foldMap mapTransits
 
-planetWindows :: QueryArr [Either String (Ephemeris Double)] [Ephemeris Double]
-planetWindows = arr $ \ephe ->
-  case sequenceA ephe of
-    Left _err -> []
-    Right allGood -> allGood
-
-interplanetaryTransits :: QueryArr [Ephemeris Double] (Aggregate (Planet, Planet) TransitSeq)
-interplanetaryTransits = arr $ \case
-  (day1Ephe : day2Ephe : _) ->
-    mconcat $ forEach uniquePairs $ \pair@(planet1, planet2) ->
+mapTransits :: S.Seq (Ephemeris Double) -> TransitMap
+mapTransits (day1Ephe :<| day2Ephe :<| _) = 
+  concatForEach uniquePairs $ \pair@(planet1, planet2) ->
       let planet1Ephe1 = (epheDate day1Ephe,) <$> forPlanet planet1 day1Ephe
           planet1Ephe2 = (epheDate day2Ephe,) <$> forPlanet planet1 day2Ephe
           planet2Ephe2 = (epheDate day2Ephe,) <$> forPlanet planet2 day2Ephe
@@ -131,11 +103,8 @@ interplanetaryTransits = arr $ \case
       in case transit' of
         Nothing -> mempty
         Just transit -> Aggregate $ M.fromList [(pair, singleton transit)]
-  _ ->
-    mempty
 
-foldTransits :: [[Either String (Ephemeris Double)]] -> Aggregate (Planet, Planet) TransitSeq
-foldTransits = runQuery $ planetWindows >>> interplanetaryTransits
+mapTransits _ = mempty
 
 mergeTransitSeq :: TransitSeq -> TransitSeq -> TransitSeq
 mergeTransitSeq (TransitSeq s1) (TransitSeq s2) =
