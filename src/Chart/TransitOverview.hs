@@ -1,80 +1,33 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TupleSections #-}
-{-# OPTIONS_GHC -Wno-orphans #-}
 
-module TransitCharts where
+module Chart.TransitOverview where
 
-import Data.Foldable (forM_, traverse_, Foldable (toList))
-import Data.Maybe (mapMaybe, fromMaybe)
+import Data.Foldable (forM_, Foldable (toList))
 import Data.Time
-  ( Day,
-    toGregorian,
-    UTCTime,
+  ( UTCTime,
   )
 import Graphics.Rendering.Chart.Backend.Diagrams (toFile)
 import Graphics.Rendering.Chart.Easy hiding (days)
-import Options.Applicative
-  ( Parser,
-    ParserInfo,
-    ReadM,
-    eitherReader,
-    fullDesc,
-    help,
-    helper,
-    info,
-    long,
-    option,
-    progDesc,
-    short,
-  )
 import SwissEphemeris
   ( JulianDayTT,
     Planet (..),
-    ZodiacSignName (..), ToJulianDay (toJulianDay), gregorianToFakeJulianDayTT, FromJulianDay (fromJulianDay)
+    ZodiacSignName (..)
   )
-import Text.Read (readMaybe)
-import SwissEphemeris.Precalculated (readEphemerisEasy, forPlanet, EphemerisPosition (EphemerisPosition, epheLongitude))
+import SwissEphemeris.Precalculated (EphemerisPosition (EphemerisPosition, epheLongitude))
 import qualified Data.Map as M
-import OptionParser ( dayReader, datetimeReader )
 import Query.PlanetEphe
-import qualified Streaming.Prelude as S
-import Query.Streaming
 import Query.Aggregate
 import qualified Data.Bifunctor as B
 
 
 data Line = Solid | Dotted
 
-deriving instance Read Planet
 
 -- | Default planets to consider for transits.
 defaultPlanets :: [Planet]
 defaultPlanets = [Sun .. Pluto] <> [MeanNode, MeanApog, Chiron]
-
-data Options = Options
-  { optBirthday :: !UTCTime,
-    optRangeStart :: !Day,
-    optRangeEnd :: !Day,
-    optNatalPlanets :: [Planet]
-  }
-
-main :: Options -> IO ()
-main Options {optBirthday, optRangeStart, optRangeEnd, optNatalPlanets} = do
-  let days = julianDays optRangeStart optRangeEnd
-      natalPlanets = optNatalPlanets
-
-  Just julian <- toJulianDay optBirthday
-  utcDays <- sequence $ fromJulianDay <$> days
-  let allDays = zip days utcDays
-  transitedEphe <- readEphemerisEasy False julian
-  transitingEphe S.:> _ <- streamEpheF optRangeStart optRangeEnd & planetEphemeris
-
-  case transitedEphe of
-    Left err -> fail err
-    Right ephe -> do
-      let transited = fromMaybe [] $ traverse (`forPlanet` ephe) natalPlanets
-      traverse_ (transitChart allDays transitingEphe) transited
 
 transitChart :: [(JulianDayTT, UTCTime)] -> PlanetEphe -> EphemerisPosition Double -> IO ()
 transitChart transitRange (Aggregate transits) natalEphe@(EphemerisPosition transited natalPos _spd) = do
@@ -191,16 +144,6 @@ planetColor MeanApog = darkorchid
 planetColor Chiron = firebrick
 planetColor _ = mempty
 
--- | Get all days in the given range, as @JulianDayTT@s
-julianDays :: Day -> Day -> [JulianDayTT]
-julianDays startDay endDay =
-  [start .. end]
-  where
-    (startY, startM, startD) = toGregorian startDay
-    (endY, endM, endD) = toGregorian endDay
-    start = gregorianToFakeJulianDayTT startY startM startD 0
-    end = gregorianToFakeJulianDayTT endY endM endD 0
-
 -- | Generate all crossings where an aspect can occur. Note that there's multiple,
 -- however many can fit in an ecliptic!
 aspectBands :: Double -> EphemerisPosition Double-> [Double]
@@ -243,28 +186,3 @@ groupWhen p (c:cs) = r : groupWhen p xs'
   run y [] = ([y],[])
   run y l@(x:xs) | p y x     = cons' y $ run x xs
                  | otherwise = ([y],l)
-
-
----
---- OPT UTILS
----
-
-planetListReader :: ReadM [Planet]
-planetListReader = eitherReader $ \arg ->
-  case mapMaybe readMaybe (words arg) of
-    [] -> Left "No planets could be parsed"
-    ps -> Right ps
-
-optsParser :: ParserInfo Options
-optsParser =
-  info
-    (helper <*> mainOptions)
-    (fullDesc <> progDesc "Plot transit charts for the given natal planets, in the given time range, for a specific birth/event date")
-
-mainOptions :: Parser Options
-mainOptions =
-  Options
-    <$> option datetimeReader (long "date" <> short 'd')
-    <*> option dayReader (long "start" <> short 's')
-    <*> option dayReader (long "end" <> short 'e')
-    <*> option planetListReader (long "planets" <> short 'p' <> help "space-separated list of planets")

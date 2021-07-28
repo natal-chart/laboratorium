@@ -3,6 +3,8 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE OverloadedLists #-}
+
 module Query.Transit where
 
 import Data.Sequence ((><), (|>), (<|), ViewL(..), ViewR(..), Seq ((:<|)))
@@ -60,6 +62,7 @@ data Transit = Transit {
 , transitOrb :: !Double
 , transitStarts :: !JulianDayTT
 , transitEnds :: !JulianDayTT
+, transitProgress :: !(S.Seq (JulianDayTT, Double))
 } deriving (Show)
 
 newtype TransitSeq =
@@ -92,9 +95,9 @@ interplanetaryTransits =
   ephemerisWindows 2
   >>> St.foldMap mapTransits
 
-mapTransits :: S.Seq (Ephemeris Double) -> TransitMap
-mapTransits (day1Ephe :<| day2Ephe :<| _) = 
-  concatForEach uniquePairs $ \pair@(planet1, planet2) ->
+mapTransits' :: [(Planet, Planet)] -> Seq (Ephemeris Double) -> TransitMap
+mapTransits' chosenPairs (day1Ephe :<| day2Ephe :<| _) = 
+  concatForEach chosenPairs $ \pair@(planet1, planet2) ->
       let planet1Ephe1 = (epheDate day1Ephe,) <$> forPlanet planet1 day1Ephe
           planet1Ephe2 = (epheDate day2Ephe,) <$> forPlanet planet1 day2Ephe
           planet2Ephe2 = (epheDate day2Ephe,) <$> forPlanet planet2 day2Ephe
@@ -104,7 +107,10 @@ mapTransits (day1Ephe :<| day2Ephe :<| _) =
         Nothing -> mempty
         Just transit -> Aggregate $ M.fromList [(pair, singleton transit)]
 
-mapTransits _ = mempty
+mapTransits' _ _ = mempty
+
+mapTransits :: Seq (Ephemeris Double) -> TransitMap
+mapTransits = mapTransits' uniquePairs
 
 mergeTransitSeq :: TransitSeq -> TransitSeq -> TransitSeq
 mergeTransitSeq (TransitSeq s1) (TransitSeq s2) =
@@ -124,7 +130,8 @@ mergeTransitSeq (TransitSeq s1) (TransitSeq s2) =
         merged = x {
           transitEnds = transitEnds y,
           transitAngle = transitAngle y,
-          transitOrb = transitOrb y
+          transitOrb = transitOrb y,
+          transitProgress = transitProgress x <> transitProgress y
         }
 
 uniquePairs :: [(Planet, Planet)]
@@ -165,7 +172,7 @@ mkTransit transiting@((t1, p11), (t2, p12)) transited@(_t2', p22)
         station = movement transiting
         rel = relation before' after' ref
         phase = transitPhase station rel
-    pure $ Transit aspectName phase angle' orb' t1 t2
+    pure $ Transit aspectName phase angle' orb' t1 t2 [(t2,orb')]
 
 
 -------------------------------------------------------------------------------

@@ -18,9 +18,9 @@ maintainer:          luis@astralarcanum.com
 
 library
   exposed-modules:
-    TransitCharts
     PrecalculatedEphemeris
     CLI
+    Util
     OptionParser
     Query.Main
     Query.Retrograde
@@ -30,6 +30,9 @@ library
     Query.Aggregate
     Query.Streaming
     Query.PlanetEphe
+    Chart.Main
+    Chart.TransitOverview
+    Chart.TransitProgress
 
   -- other-extensions:
   build-depends:
