@@ -24,4 +24,6 @@ in (super: {
   #postgresql-simple-migration = doJailbreak super.postgresql-simple-migration;
   # had to jailbreak due to tls/http-client bad deps
   network-api-support = doJailbreak super.network-api-support;
+  # had to jailbreak due to a dependency on profunctors
+  colonnade = doJailbreak super.colonnade;
 })
