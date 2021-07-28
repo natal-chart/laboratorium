@@ -126,7 +126,7 @@ mapNatalTransits natalEphemeris chosenPairs (day1Ephe :<| day2Ephe :<| _) =
       let planet1Ephe1 = (epheDate day1Ephe,) <$> forPlanet planet1 day1Ephe
           planet1Ephe2 = (epheDate day2Ephe,) <$> forPlanet planet1 day2Ephe
 
-          planet2Ephe2 = (epheDate day2Ephe,) <$> forPlanet planet2 natalEphemeris
+          planet2Ephe2 = (epheDate day2Ephe,) <$> staticPosition (forPlanet planet2 natalEphemeris)
           planet1Ephes = liftA2 (,) planet1Ephe1 planet1Ephe2
           transit' = join $ mkTransit <$> planet1Ephes <*> planet2Ephe2
       in case transit' of
@@ -134,6 +134,10 @@ mapNatalTransits natalEphemeris chosenPairs (day1Ephe :<| day2Ephe :<| _) =
         Just transit -> Aggregate $ M.fromList [(pair, singleton transit)]
 
 mapNatalTransits _ _ _ = mempty
+
+staticPosition :: Maybe (EphemerisPosition Double) -> Maybe (EphemerisPosition Double)
+staticPosition (Just pos) = Just $ pos{epheSpeed = 0.0}
+staticPosition Nothing = Nothing
 
 
 mergeTransitSeq :: TransitSeq -> TransitSeq -> TransitSeq
