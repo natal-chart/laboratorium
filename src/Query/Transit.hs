@@ -183,9 +183,10 @@ defaultPlanets =
       , Pluto
       ]
 
+-- All pairs, including a planet with itself -- useful for natal transits
 allPairs :: [(Planet, Planet)]
 allPairs =
-  [(p1, p2) | p1 <- defaultPlanets, p2 <- defaultPlanets, p1 /= p2]
+  [(p1, p2) | p1 <- defaultPlanets, p2 <- defaultPlanets]
 
 
 mkTransit
