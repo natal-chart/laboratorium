@@ -18,6 +18,8 @@ import Text.Read (readMaybe)
 import OptionParser
 import Data.Function
 import Streaming (Stream, Of)
+import Query.Transit
+import Chart.TransitProgress
 
 deriving instance Read Planet
 
@@ -39,7 +41,13 @@ main opts@Options{optRangeStart, optRangeEnd, optQueryType} = do
   let epheStream = streamEpheF optRangeStart optRangeEnd
   case optQueryType of
     Overview -> doOverview opts epheStream
-    Progress -> undefined
+    Progress -> doTransitProgress epheStream
+
+doTransitProgress :: Stream (Of (Ephemeris Double)) IO () -> IO ()
+doTransitProgress ephe = do
+  chosenTransits S.:> _ <- ephe & selectTransits defaultTransits
+  transitProgressChart chosenTransits
+  
 
 doOverview :: Options -> Stream (Of (Ephemeris Double)) IO () -> IO ()
 doOverview Options{optBirthday, optRangeStart, optRangeEnd, optNatalPlanets} ephe = do

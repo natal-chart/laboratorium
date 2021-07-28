@@ -95,6 +95,10 @@ interplanetaryTransits =
   ephemerisWindows 2
   >>> St.foldMap mapTransits
 
+selectTransits :: Monad m => [(Planet, Planet)] -> St.Stream (St.Of (Ephemeris Double)) m b -> m (St.Of TransitMap b)
+selectTransits selectedTransits =
+  ephemerisWindows 2 >>> St.foldMap (mapTransits' selectedTransits)
+
 mapTransits' :: [(Planet, Planet)] -> Seq (Ephemeris Double) -> TransitMap
 mapTransits' chosenPairs (day1Ephe :<| day2Ephe :<| _) = 
   concatForEach chosenPairs $ \pair@(planet1, planet2) ->
