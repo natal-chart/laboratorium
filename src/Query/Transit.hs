@@ -160,10 +160,10 @@ mergeTransitSeq (TransitSeq s1) (TransitSeq s2) =
 
 uniquePairs :: [(Planet, Planet)]
 uniquePairs =
-  [(p1, p2) | (p1:ps) <- tails planetsBySpeed, p2 <- ps]
-  where
-    -- planets sorted by their max average speed, descending.
-    planetsBySpeed =
+  [(p1, p2) | (p1:ps) <- tails defaultPlanets, p2 <- ps]
+
+defaultPlanets :: [Planet]
+defaultPlanets =
       [ Moon
       , Mercury
       , Venus
@@ -179,6 +179,9 @@ uniquePairs =
       , Pluto
       ]
 
+allPairs :: [(Planet, Planet)]
+allPairs =
+  [(p1, p2) | p1 <- defaultPlanets, p2 <- defaultPlanets, p1 /= p2]
 
 
 mkTransit

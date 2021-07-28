@@ -52,7 +52,7 @@ doNatalTransitProgress Options{optNatalPlanets, optBirthday} ephe =  do
   case transitedEphe of
     Left err -> fail err
     Right transited -> do
-      let chosenPairs = uniquePairs & filter ((`elem` optNatalPlanets) . fst)
+      let chosenPairs = allPairs & filter ((`elem` optNatalPlanets) . fst)
       chosenTransits S.:> _ <- ephe & selectNatalTransits transited chosenPairs 
       transitProgressChart chosenTransits
 
