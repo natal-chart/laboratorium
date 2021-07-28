@@ -68,7 +68,7 @@ data Transit = Transit {
 newtype TransitSeq =
   TransitSeq {getTransits :: S.Seq Transit}
   deriving stock (Show)
-  deriving (Semigroup, Monoid) via (S.Seq Transit) 
+  deriving (Semigroup, Monoid) via (S.Seq Transit)
 
 singleton :: Transit -> TransitSeq
 singleton = TransitSeq . S.singleton
@@ -99,8 +99,12 @@ selectTransits :: Monad m => [(Planet, Planet)] -> St.Stream (St.Of (Ephemeris D
 selectTransits selectedTransits =
   ephemerisWindows 2 >>> St.foldMap (mapTransits' selectedTransits)
 
+selectNatalTransits :: Monad m => Ephemeris Double -> [(Planet, Planet)] -> St.Stream (St.Of (Ephemeris Double)) m b -> m (St.Of TransitMap b)
+selectNatalTransits natalEphemeris selectedTransits =
+  ephemerisWindows 2 >>> St.foldMap (mapNatalTransits natalEphemeris selectedTransits)
+
 mapTransits' :: [(Planet, Planet)] -> Seq (Ephemeris Double) -> TransitMap
-mapTransits' chosenPairs (day1Ephe :<| day2Ephe :<| _) = 
+mapTransits' chosenPairs (day1Ephe :<| day2Ephe :<| _) =
   concatForEach chosenPairs $ \pair@(planet1, planet2) ->
       let planet1Ephe1 = (epheDate day1Ephe,) <$> forPlanet planet1 day1Ephe
           planet1Ephe2 = (epheDate day2Ephe,) <$> forPlanet planet1 day2Ephe
@@ -115,6 +119,22 @@ mapTransits' _ _ = mempty
 
 mapTransits :: Seq (Ephemeris Double) -> TransitMap
 mapTransits = mapTransits' uniquePairs
+
+mapNatalTransits :: Ephemeris Double -> [(Planet, Planet)] -> Seq (Ephemeris Double) -> TransitMap
+mapNatalTransits natalEphemeris chosenPairs (day1Ephe :<| day2Ephe :<| _) =
+  concatForEach chosenPairs $ \pair@(planet1, planet2) ->
+      let planet1Ephe1 = (epheDate day1Ephe,) <$> forPlanet planet1 day1Ephe
+          planet1Ephe2 = (epheDate day2Ephe,) <$> forPlanet planet1 day2Ephe
+
+          planet2Ephe2 = (epheDate day2Ephe,) <$> forPlanet planet2 natalEphemeris
+          planet1Ephes = liftA2 (,) planet1Ephe1 planet1Ephe2
+          transit' = join $ mkTransit <$> planet1Ephes <*> planet2Ephe2
+      in case transit' of
+        Nothing -> mempty
+        Just transit -> Aggregate $ M.fromList [(pair, singleton transit)]
+
+mapNatalTransits _ _ _ = mempty
+
 
 mergeTransitSeq :: TransitSeq -> TransitSeq -> TransitSeq
 mergeTransitSeq (TransitSeq s1) (TransitSeq s2) =

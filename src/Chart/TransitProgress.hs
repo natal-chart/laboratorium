@@ -18,7 +18,7 @@ import System.IO.Unsafe (unsafePerformIO)
 
 transitProgressChart :: TransitMap -> IO ()
 transitProgressChart (Aggregate allTransits) =
-  toFile def "transit_progress2.svg" $ do
+  toFile def "transit_progress3.svg" $ do
     layout_title .= "Transit Progress"
     layout_y_axis . laxis_reverse .= True
     forM_ (M.toAscList allTransits) $ \((transiting, transited), transits) -> 

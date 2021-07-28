@@ -25,7 +25,8 @@ deriving instance Read Planet
 
 data QueryType
   = Overview
-  | Progress
+  | WorldProgress
+  | NatalProgress
   deriving (Show, Read)
 
 data Options = Options
@@ -41,7 +42,19 @@ main opts@Options{optRangeStart, optRangeEnd, optQueryType} = do
   let epheStream = streamEpheF optRangeStart optRangeEnd
   case optQueryType of
     Overview -> doOverview opts epheStream
-    Progress -> doTransitProgress opts epheStream
+    WorldProgress -> doTransitProgress opts epheStream
+    NatalProgress -> doNatalTransitProgress opts epheStream
+
+doNatalTransitProgress :: Options -> Stream (Of (Ephemeris Double)) IO () -> IO ()
+doNatalTransitProgress Options{optNatalPlanets, optBirthday} ephe =  do
+  Just julian <- toJulianDay optBirthday
+  transitedEphe <- readEphemerisEasy False julian
+  case transitedEphe of
+    Left err -> fail err
+    Right transited -> do
+      let chosenPairs = uniquePairs & filter ((`elem` optNatalPlanets) . fst)
+      chosenTransits S.:> _ <- ephe & selectNatalTransits transited chosenPairs 
+      transitProgressChart chosenTransits
 
 doTransitProgress :: Options -> Stream (Of (Ephemeris Double)) IO () -> IO ()
 doTransitProgress Options{optNatalPlanets} ephe = do
