@@ -7,7 +7,7 @@ import Data.Time
 import Graphics.Rendering.Chart.Backend.Diagrams (toFile)
 import Graphics.Rendering.Chart.Easy hiding (days)
 import SwissEphemeris
-  ( Planet (..), FromJulianDay (fromJulianDay)
+  ( FromJulianDay (fromJulianDay)
   )
 import Query.Transit
 import Query.Aggregate
@@ -16,12 +16,9 @@ import Data.List (groupBy)
 import System.IO.Unsafe (unsafePerformIO)
 
 
-defaultTransits :: [(Planet, Planet)]
-defaultTransits = [(Venus, Mars), (Mars, Chiron), (Mars, Jupiter), (Saturn, Chiron)]
-
 transitProgressChart :: TransitMap -> IO ()
 transitProgressChart (Aggregate allTransits) =
-  toFile def "transit_progress.svg" $ do
+  toFile def "transit_progress2.svg" $ do
     layout_title .= "Transit Progress"
     layout_y_axis . laxis_reverse .= True
     forM_ (M.toAscList allTransits) $ \((transiting, transited), transits) -> 

@@ -41,11 +41,12 @@ main opts@Options{optRangeStart, optRangeEnd, optQueryType} = do
   let epheStream = streamEpheF optRangeStart optRangeEnd
   case optQueryType of
     Overview -> doOverview opts epheStream
-    Progress -> doTransitProgress epheStream
+    Progress -> doTransitProgress opts epheStream
 
-doTransitProgress :: Stream (Of (Ephemeris Double)) IO () -> IO ()
-doTransitProgress ephe = do
-  chosenTransits S.:> _ <- ephe & selectTransits defaultTransits
+doTransitProgress :: Options -> Stream (Of (Ephemeris Double)) IO () -> IO ()
+doTransitProgress Options{optNatalPlanets} ephe = do
+  let chosenPairs = uniquePairs & filter ((`elem` optNatalPlanets) . fst)
+  chosenTransits S.:> _ <- ephe & selectTransits chosenPairs 
   transitProgressChart chosenTransits
   
 
