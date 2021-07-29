@@ -100,7 +100,7 @@ doTransits ephe = do
   forM_ (M.toAscList (getAggregate allTransits)) $ \(bodies@(_transiting, _transited), transits) -> do
     print bodies
     putStrLn "-----------"
-    forM_ (getTransits transits) $ \Transit{aspect,phase,transitOrb,transitStarts,transitEnds} -> do
+    forM_ (getMerged transits) $ \Transit{aspect,phase,transitOrb,transitStarts,transitEnds} -> do
       startsUT <- fromJulianDay transitStarts :: IO UTCTime
       endsUT   <- fromJulianDay transitEnds   :: IO UTCTime
       print (startsUT, endsUT, aspect, phase, transitOrb)

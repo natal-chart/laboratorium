@@ -36,8 +36,8 @@ newtype CrossingSeq a =
   deriving stock (Show)
   deriving (Semigroup, Monoid) via (S.Seq (Crossing a))
 
-singleton :: Crossing a -> CrossingSeq a
-singleton = CrossingSeq . S.singleton
+singleton' :: Crossing a -> CrossingSeq a
+singleton' = CrossingSeq . S.singleton
 
 instance HasEclipticLongitude  a => HasUnion (CrossingSeq a) where
   (CrossingSeq s1) `union` (CrossingSeq s2) =
@@ -62,7 +62,7 @@ mapCrossings degreesToCross (pos1 :<| pos2 :<| _) =
     else
       Aggregate
         $ M.fromList
-        $ map (\c -> (ephePlanet p1, singleton c))
+        $ map (\c -> (ephePlanet p1, singleton' c))
         $ mapMaybe (mkCrossing (epheDate pos1, p1) (epheDate pos2, p2))
         degreesToCross
 

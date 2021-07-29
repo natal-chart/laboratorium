@@ -20,8 +20,8 @@ newtype PlanetPositionSeq =
   PlanetPositionSeq {getPlanetPositions :: S.Seq (UTCTime, EphemerisPosition')}
   deriving (Semigroup, Monoid) via (S.Seq (UTCTime, EphemerisPosition'))
 
-singleton :: (UTCTime, EphemerisPosition') -> PlanetPositionSeq
-singleton = PlanetPositionSeq . S.singleton
+singleton' :: (UTCTime, EphemerisPosition') -> PlanetPositionSeq
+singleton' = PlanetPositionSeq . S.singleton
 
 instance HasUnion PlanetPositionSeq where
   (PlanetPositionSeq s1) `union` (PlanetPositionSeq s2) =
@@ -43,6 +43,6 @@ mapPlanets :: [Planet] -> (UTCTime, Ephemeris Double) -> PlanetEphe
 mapPlanets selectedPlanets (ut, ephe) =
   concatForEach (toList $ ephePositions ephe) $ \pos ->
     if ephePlanet pos `elem` selectedPlanets then
-      Aggregate $ M.fromList [(ephePlanet pos, singleton (ut, pos))]
+      Aggregate $ M.fromList [(ephePlanet pos, singleton' (ut, pos))]
     else
       mempty

@@ -24,7 +24,7 @@ transitProgressChart (Aggregate allTransits) verbose = do
     forM_ (M.toAscList allTransits) $ \(bodies, transits) -> do
       print bodies
       putStrLn "-------------"
-      forM_ (getTransits transits) $ \Transit{aspect,phase,transitStarts, transitEnds, transitProgress} -> do
+      forM_ (getMerged transits) $ \Transit{aspect,phase,transitStarts, transitEnds, transitProgress} -> do
         startsUT <- fromJulianDay transitStarts :: IO UTCTime
         endsUT   <- fromJulianDay transitEnds   :: IO UTCTime
         print (startsUT, endsUT, aspect, phase)
@@ -37,7 +37,7 @@ transitProgressChart (Aggregate allTransits) verbose = do
     layout_title .= "Transit Progress"
     layout_y_axis . laxis_reverse .= True
     forM_ (M.toAscList allTransits) $ \((transiting, transited), transits) ->
-      forM_ (groupBy (\t1 t2 -> aspect t1 == aspect t2) $ toList $ getTransits transits) $ \transitsByAspect -> do
+      forM_ (groupBy (\t1 t2 -> aspect t1 == aspect t2) $ toList $ getMerged transits) $ \transitsByAspect -> do
         let allProgress = toList $ foldMap' transitProgress transitsByAspect
             aspectN = head transitsByAspect & aspect
         plot (fillBetween (show transiting <> " " <> show aspectN <> " " <> show transited)
