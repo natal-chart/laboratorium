@@ -57,7 +57,7 @@ doRetrogrades ephe = do
   forM_ (M.toAscList (getAggregate retro)) $ \(planet, stations) -> do
     print planet
     putStrLn "-----------"
-    forM_ (getStations stations) $ \PlanetStation{stationStarts, stationEnds, stationType} -> do
+    forM_ (getMerged stations) $ \PlanetStation{stationStarts, stationEnds, stationType} -> do
       startsUT <- fromJulianDay stationStarts :: IO UTCTime
       endsUT <- fromJulianDay stationEnds :: IO UTCTime
       let interval =
