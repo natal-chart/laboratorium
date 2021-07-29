@@ -7,7 +7,7 @@
 
 module Query.Transit where
 
-import Data.Sequence ((><), (|>), (<|), ViewL(..), ViewR(..), Seq ((:<|)))
+import Data.Sequence (Seq ((:<|)))
 import qualified Data.Sequence as S
 import qualified Streaming.Prelude as St
 import qualified Data.Map as M
@@ -65,18 +65,21 @@ data Transit = Transit {
 , transitProgress :: !(S.Seq (JulianDayTT, Double))
 } deriving (Show)
 
-newtype TransitSeq =
-  TransitSeq {getTransits :: S.Seq Transit}
-  deriving stock (Show)
-  deriving (Semigroup, Monoid) via (S.Seq Transit)
+instance Merge Transit where
+  x `merge` y =
+    if aspect x == aspect y && phase x == phase y then
+      KeepL merged
+    else
+      KeepBoth x y
+    where
+      merged = x {
+          transitEnds = transitEnds y,
+          transitAngle = transitAngle y,
+          transitOrb = transitOrb y,
+          transitProgress = transitProgress x <> transitProgress y
+        }
 
-singleton :: Transit -> TransitSeq
-singleton = TransitSeq . S.singleton
-
-instance HasUnion TransitSeq where
-  union = mergeTransitSeq
-
-type TransitMap = Aggregate (Planet, Planet) TransitSeq
+type TransitMap = Grouped (Planet, Planet) Transit
 
 sextile, square, trine, opposition, conjunction :: Aspect
 conjunction = Aspect Conjunction 0 5 5
@@ -139,28 +142,6 @@ staticPosition :: Maybe (EphemerisPosition Double) -> Maybe (EphemerisPosition D
 staticPosition (Just pos) = Just $ pos{epheSpeed = 0.0}
 staticPosition Nothing = Nothing
 
-
-mergeTransitSeq :: TransitSeq -> TransitSeq -> TransitSeq
-mergeTransitSeq (TransitSeq s1) (TransitSeq s2) =
-  TransitSeq $ doMerge s1Last s2First
-  where
-    s1Last  = S.viewr s1
-    s2First = S.viewl s2
-    doMerge EmptyR EmptyL = mempty
-    doMerge EmptyR (x :< xs) = x <| xs
-    doMerge (xs :> x) EmptyL = xs |> x
-    doMerge (xs :> x) (y :< ys) =
-      if aspect x == aspect y && phase x == phase y then
-        (xs |> merged) >< ys
-      else
-        (xs |> x) >< (y <| ys)
-      where
-        merged = x {
-          transitEnds = transitEnds y,
-          transitAngle = transitAngle y,
-          transitOrb = transitOrb y,
-          transitProgress = transitProgress x <> transitProgress y
-        }
 
 -- | All distinct pairings of  planets, with the one that's faster
 -- on average as the first of the pair, always.
