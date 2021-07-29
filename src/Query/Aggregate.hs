@@ -10,8 +10,14 @@ import Data.Sequence (ViewR(EmptyR, (:>)), ViewL (EmptyL, (:<)), (<|), (|>), (><
 class HasUnion a where
   union :: a -> a -> a
 
+instance HasUnion (S.Seq a) where
+  union = (><)
+
 class Merge a where
   merge :: a -> a -> MergeStrategy a
+
+instance Merge (S.Seq a) where
+  merge _ _ = KeepBoth 
 
 data MergeStrategy a
   = ReplaceBoth a a

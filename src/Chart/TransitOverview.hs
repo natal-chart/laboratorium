@@ -66,7 +66,7 @@ transitChart transitRange (Aggregate transits) natalEphe@(EphemerisPosition tran
         [natalPos]
 
 extractPositions :: PlanetPositionSeq -> [(UTCTime, Double)]
-extractPositions (PlanetPositionSeq s) =
+extractPositions s =
   fmap (B.second epheLongitude) s
   & toList
 
