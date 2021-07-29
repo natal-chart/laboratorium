@@ -14,9 +14,11 @@ class Merge a where
   merge :: a -> a -> MergeStrategy a
 
 data MergeStrategy a
-  = KeepBoth a a
-  | KeepL a
-  | KeepR a
+  = ReplaceBoth a a
+  | ReplaceL a
+  | ReplaceR a
+  | Merge a
+  | KeepBoth
   deriving (Eq, Show)
 
 newtype MergeSeq a =
@@ -31,16 +33,18 @@ instance Merge a => HasUnion (MergeSeq a) where
   union (MergeSeq s1) (MergeSeq s2) = 
     MergeSeq $ doMerge s1Last s2First 
     where
-      s1Last = S.viewr s1
+      s1Last  = S.viewr s1
       s2First = S.viewl s2
-      doMerge EmptyR EmptyL = mempty
+      doMerge EmptyR EmptyL    = mempty
       doMerge EmptyR (x :< xs) = x <| xs
       doMerge (xs :> x) EmptyL = xs |> x
       doMerge (xs :> x) (y :< ys) =
         case merge x y of
-          KeepBoth a b -> (xs |> a) >< (b <| ys)
-          KeepL a -> (xs |> a) >< ys
-          KeepR b -> xs >< (b <| ys)
+          ReplaceBoth a b -> (xs |> a) >< (b <| ys)
+          Merge       a   -> (xs |> a) >< ys
+          ReplaceL    a   -> (xs |> a) >< (y <| ys)
+          ReplaceR      b -> (xs |> x) >< (b <| ys)
+          KeepBoth        -> (xs |> x) >< (y <| ys)
 
 -- newtype somewhat inspired by:
 -- https://stackoverflow.com/questions/32160350/folding-over-a-list-and-counting-all-occurrences-of-arbitrarily-many-unique-and

@@ -68,9 +68,9 @@ data Transit = Transit {
 instance Merge Transit where
   x `merge` y =
     if aspect x == aspect y && phase x == phase y then
-      KeepL merged
+      Merge merged
     else
-      KeepBoth x y
+      KeepBoth
     where
       merged = x {
           transitEnds = transitEnds y,
