@@ -78,7 +78,7 @@ doCrossings ephe = do
     putStrLn ""
     print planet
     putStrLn "-----------"
-    forM_ (getCrossings crossings') $ \Crossing{crossingEnters, crossingExits, crossingSubject} -> do
+    forM_ (getMerged crossings') $ \Crossing{crossingEnters, crossingExits, crossingSubject} -> do
       let startsUT = fromJulianDay <$> crossingEnters :: (Maybe (IO UTCTime))
           endsUT = fromJulianDay <$> crossingExits :: (Maybe (IO UTCTime))
       interval <-

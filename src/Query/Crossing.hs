@@ -6,8 +6,7 @@
 module Query.Crossing where
 
 import SwissEphemeris
-import Data.Sequence ((><), Seq(..), (|>), (<|), ViewL(..), ViewR(..))
-import qualified Data.Sequence as S
+import Data.Sequence (Seq(..))
 import SwissEphemeris.Precalculated
 import qualified Data.Map as M
 import Data.Foldable (Foldable(toList))
@@ -31,21 +30,23 @@ data Crossing a = Crossing
   , crossingPlanetExited :: !(Maybe SimplePlanetStation)
   } deriving (Show)
 
-newtype CrossingSeq a =
-  CrossingSeq { getCrossings :: S.Seq (Crossing a)}
-  deriving stock (Show)
-  deriving (Semigroup, Monoid) via (S.Seq (Crossing a))
+instance Eq a => Merge (Crossing a) where
+  x `merge` y =
+    if crossingSubject x == crossingSubject y then
+      Merge merged
+    else
+      ReplaceL updated
+    where
+      merged = x {
+        crossingExits = crossingExits y,
+        crossingPlanetExited = crossingPlanetExited y
+      }
+      updated = x {
+        crossingExits = crossingEnters y,
+        crossingPlanetExited = crossingPlanetEntered y
+      }
 
-singleton' :: Crossing a -> CrossingSeq a
-singleton' = CrossingSeq . S.singleton
-
-instance HasEclipticLongitude  a => HasUnion (CrossingSeq a) where
-  (CrossingSeq s1) `union` (CrossingSeq s2) =
-    let s1Last = S.viewr s1
-        s2First = S.viewl s2
-    in CrossingSeq $ mergeCrossingEvents s1Last s2First
-
-type CrossingMap a = Aggregate Planet (CrossingSeq a)
+type CrossingMap a = Grouped Planet (Crossing a)
 
 crossings :: (Monad m, HasEclipticLongitude a) => [a] -> Stream (Of (Ephemeris Double)) m b -> m (Of (CrossingMap a) b)
 crossings degs =
@@ -62,30 +63,11 @@ mapCrossings degreesToCross (pos1 :<| pos2 :<| _) =
     else
       Aggregate
         $ M.fromList
-        $ map (\c -> (ephePlanet p1, singleton' c))
+        $ map (\c -> (ephePlanet p1, singleton c))
         $ mapMaybe (mkCrossing (epheDate pos1, p1) (epheDate pos2, p2))
         degreesToCross
 
 mapCrossings _ _ = mempty
-
-mergeCrossingEvents :: HasEclipticLongitude  a => ViewR (Crossing a) -> ViewL (Crossing a) -> Seq (Crossing a)
-mergeCrossingEvents EmptyR EmptyL = S.empty
-mergeCrossingEvents EmptyR (x :< xs) = x <| xs
-mergeCrossingEvents (xs :> x) EmptyL = xs |> x
-mergeCrossingEvents (xs :> x) (y :< ys) =
-  if crossingSubject x == crossingSubject y then
-    (xs |> merged) >< ys
-  else
-    (xs |> updated) >< ( y <| ys)
-  where
-    merged = x {
-      crossingExits   = crossingExits y,
-      crossingPlanetExited = crossingPlanetExited y
-    }
-    updated = x {
-      crossingExits = crossingEnters y,
-      crossingPlanetExited = crossingPlanetEntered y
-    }
 
 mkCrossing :: HasEclipticLongitude a => (JulianDayTT, EphemerisPosition Double) -> (JulianDayTT, EphemerisPosition Double) -> a -> Maybe (Crossing a)
 mkCrossing (d1, pos1) (_d2, pos2) toCross
