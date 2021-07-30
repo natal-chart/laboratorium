@@ -48,15 +48,15 @@ transitChart transitRange (Aggregate transits) natalEphe@(EphemerisPosition tran
         alternatingColors = concat $ replicate 6 [lightgray, white]
     forM_ (zip3 [Aries .. Pisces] alternatingColors zodiacBands) $ \(sign, color, band) -> do
       plotRight (fbetween (show sign) color [(ut, band) | (_tt, ut) <- transitRange])
-
-    -- plot the positions of all planets for all year
-    forM_ defaultPlanets $ \transitingP -> do
-      plotLeft $
+      
+    -- plot the positions of all chosen planets for the selected period
+    forM_ (M.toAscList transits) $ \(transitingP, transits') -> do
+       plotLeft $
         planetLine
           (show transitingP)
           (opaque $ planetColor transitingP)
           (planetLineStyle transitingP)
-          (extractPositions $ M.findWithDefault mempty transitingP transits)
+          (extractPositions transits')
 
     -- plot the original natal position line
     plotLeft $

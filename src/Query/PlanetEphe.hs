@@ -29,17 +29,20 @@ instance HasUnion PlanetPositionSeq where
 
 type PlanetEphe = Aggregate Planet PlanetPositionSeq
 
-planetEphemeris :: MonadIO m => S.Stream (S.Of (Ephemeris Double)) m () -> m (S.Of PlanetEphe ())
-planetEphemeris =
+planetEphemeris :: MonadIO m => [Planet] -> S.Stream (S.Of (Ephemeris Double)) m () -> m (S.Of PlanetEphe ())
+planetEphemeris selectedPlanets =
   S.mapM withUTC
-  >>> S.foldMap mapPlanets
+  >>> S.foldMap (mapPlanets selectedPlanets)
 
 withUTC :: MonadIO m => Ephemeris Double -> m (UTCTime, Ephemeris Double)
 withUTC ephe = do
   ut <- liftIO . fromJulianDay $ epheDate ephe
   pure (ut, ephe)
 
-mapPlanets :: (UTCTime, Ephemeris Double) -> PlanetEphe
-mapPlanets (ut, ephe) =
+mapPlanets :: [Planet] -> (UTCTime, Ephemeris Double) -> PlanetEphe
+mapPlanets selectedPlanets (ut, ephe) =
   concatForEach (toList $ ephePositions ephe) $ \pos ->
-    Aggregate $ M.fromList [(ephePlanet pos, singleton (ut, pos))]
+    if ephePlanet pos `elem` selectedPlanets then
+      Aggregate $ M.fromList [(ephePlanet pos, singleton (ut, pos))]
+    else
+      mempty

@@ -20,6 +20,7 @@ import Data.Function
 import Streaming (Stream, Of)
 import Query.Transit
 import Chart.TransitProgress
+import Data.Bifunctor (bimap)
 
 deriving instance Read Planet
 
@@ -33,8 +34,10 @@ data Options = Options
   { optBirthday :: !UTCTime,
     optRangeStart :: !Day,
     optRangeEnd :: !Day,
-    optNatalPlanets :: [Planet],
-    optQueryType :: !QueryType
+    optTransitedPlanets :: ![Planet],
+    optTransitingPlanets :: ![Planet],
+    optQueryType :: !QueryType,
+    optDebug :: !Bool
   }
 
 main :: Options -> IO ()
@@ -46,33 +49,33 @@ main opts@Options{optRangeStart, optRangeEnd, optQueryType} = do
     NatalProgress -> doNatalTransitProgress opts epheStream
 
 doNatalTransitProgress :: Options -> Stream (Of (Ephemeris Double)) IO () -> IO ()
-doNatalTransitProgress Options{optNatalPlanets, optBirthday} ephe =  do
+doNatalTransitProgress Options{optBirthday, optTransitedPlanets, optTransitingPlanets, optDebug} ephe =  do
   Just julian <- toJulianDay optBirthday
   transitedEphe <- readEphemerisEasy False julian
   case transitedEphe of
     Left err -> fail err
     Right transited -> do
-      let chosenPairs = allPairs & filter ((`elem` optNatalPlanets) . fst)
+      let chosenPairs = filteredPairs allPairs optTransitingPlanets optTransitedPlanets
       chosenTransits S.:> _ <- ephe & selectNatalTransits transited chosenPairs 
-      transitProgressChart chosenTransits
+      transitProgressChart chosenTransits optDebug
 
 doTransitProgress :: Options -> Stream (Of (Ephemeris Double)) IO () -> IO ()
-doTransitProgress Options{optNatalPlanets} ephe = do
-  let chosenPairs = uniquePairs & filter ((`elem` optNatalPlanets) . fst)
+doTransitProgress Options{optTransitedPlanets, optTransitingPlanets, optDebug} ephe = do
+  let chosenPairs = filteredPairs uniquePairs optTransitingPlanets optTransitedPlanets
   chosenTransits S.:> _ <- ephe & selectTransits chosenPairs 
-  transitProgressChart chosenTransits
+  transitProgressChart chosenTransits optDebug
   
 
 doOverview :: Options -> Stream (Of (Ephemeris Double)) IO () -> IO ()
-doOverview Options{optBirthday, optRangeStart, optRangeEnd, optNatalPlanets} ephe = do
+doOverview Options{optBirthday, optRangeStart, optRangeEnd, optTransitedPlanets, optTransitingPlanets} ephe = do
   let days = julianDays optRangeStart optRangeEnd
-      natalPlanets = optNatalPlanets
+      natalPlanets = optTransitedPlanets
 
   Just julian <- toJulianDay optBirthday
   utcDays <- sequence $ fromJulianDay <$> days
   let allDays = zip days utcDays
   transitedEphe <- readEphemerisEasy False julian
-  transitingEphe S.:> _ <- ephe & planetEphemeris
+  transitingEphe S.:> _ <- ephe & planetEphemeris optTransitingPlanets
 
   case transitedEphe of
     Left err -> fail err
@@ -81,6 +84,10 @@ doOverview Options{optBirthday, optRangeStart, optRangeEnd, optNatalPlanets} eph
       traverse_ (transitChart allDays transitingEphe) transited
 
  
+filteredPairs :: [(Planet, Planet)] -> [Planet] -> [Planet] -> [(Planet, Planet)]
+filteredPairs pairs transiting transited =
+  pairs
+  & filter (uncurry (&&) . bimap (`elem` transiting) (`elem` transited)) 
 
 ---
 --- OPT UTILS
@@ -103,8 +110,17 @@ mainOptions =
     <$> option datetimeReader (long "date" <> short 'd')
     <*> option dayReader (long "start" <> short 's')
     <*> option dayReader (long "end" <> short 'e')
-    <*> option planetListReader (long "planets" <> short 'p' <> help "space-separated list of planets")
+    <*> option (allPlanets <|> planetListReader) (long "transited" <> help "space-separated list of transited planets")
+    <*> option (allPlanets <|> planetListReader) (long "transiting" <> help "space-separated list of transiting planets")
     <*> option chartTypeReader (long "chart" <> short 'c')
+    <*> switch (long "debug" <> help "print debug information")
+
+allPlanets :: ReadM [Planet]
+allPlanets = eitherReader $ \arg ->
+  if arg == "All" then
+    Right defaultPlanets
+  else
+    Left "invalid option"
 
 chartTypeReader :: ReadM QueryType
 chartTypeReader = eitherReader $ \arg ->

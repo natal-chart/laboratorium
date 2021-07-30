@@ -162,6 +162,8 @@ mergeTransitSeq (TransitSeq s1) (TransitSeq s2) =
           transitProgress = transitProgress x <> transitProgress y
         }
 
+-- | All distinct pairings of  planets, with the one that's faster
+-- on average as the first of the pair, always.
 uniquePairs :: [(Planet, Planet)]
 uniquePairs =
   [(p1, p2) | (p1:ps) <- tails defaultPlanets, p2 <- ps]
@@ -186,7 +188,9 @@ defaultPlanets =
 -- All pairs, including a planet with itself -- useful for natal transits
 allPairs :: [(Planet, Planet)]
 allPairs =
-  [(p1, p2) | p1 <- defaultPlanets, p2 <- defaultPlanets]
+  uniquePairs <> selfPairs
+  where
+    selfPairs = zip defaultPlanets defaultPlanets
 
 
 mkTransit
@@ -195,9 +199,8 @@ mkTransit
   -> EphemerisPoint
   -- ^ planet 2 at day 2
   -> Maybe Transit
-mkTransit transiting@((t1, p11), (t2, p12)) transited@(_t2', p22)
-  | not $ isTransiting (snd transiting) transited = Nothing
-  | otherwise = do
+mkTransit transiting@((t1, p11), (t2, p12)) _transited@(_t2', p22)
+  = do
     let (before, after, transitedPos) = (epheLongitude p11, epheLongitude p12, epheLongitude p22)
     (aspectName, angle', orb', meets) <- determineAspect after transitedPos
     let (before', after', ref) = normalize (before, after, meets)
