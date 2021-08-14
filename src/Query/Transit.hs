@@ -23,9 +23,8 @@ import Query.Aggregate
 import Query.Streaming
 import Control.Category ((>>>))
 import EclipticLongitude
-import Data.Functor ((<&>))
-import Data.Maybe (catMaybes)
 import Data.Foldable (foldMap')
+import Data.Either (rights)
 
 type EphemerisPoint = (JulianDayTT, EphemerisPosition Double)
 
@@ -368,29 +367,17 @@ lunarAspects
   -> a
   -> IO [Transit]
 lunarAspects start end pos =
-  mapM crossings aspects
-  <&> catMaybes
-  <&> concat
-  <&> filter inRange
-  <&> map toTransit
+  foldMap' crossings aspects
   where
-    crossings :: Aspect -> IO (Maybe [(AspectName, Double, JulianDayTT)])
+    crossings :: Aspect -> IO [Transit]
     crossings Aspect{aspectName, angle} = do
       let crossA = toEclipticLongitude pos + EclipticLongitude angle
           crossB = toEclipticLongitude pos - EclipticLongitude angle
-      crossesA <- moonCrossing (getEclipticLongitude crossA) start
-      crossesB <- moonCrossing (getEclipticLongitude crossB) start
-      case (crossesA, crossesB) of
-        (Left _, _) -> pure Nothing
-        (_, Left _) -> pure Nothing
-        (Right xA, Right xB) ->
-          pure . Just $ nub [(aspectName, angle, xA), (aspectName, angle, xB)]
+      crossesA <- moonCrossingBetween (getEclipticLongitude crossA) start end
+      crossesB <- moonCrossingBetween (getEclipticLongitude crossB) start end
+      pure . map (toTransit aspectName angle) . nub . rights $ [crossesA, crossesB]
 
-    inRange (_, _, aspectDate) =
-      getJulianDay aspectDate >= getJulianDay start
-      && getJulianDay aspectDate < getJulianDay end
-
-    toTransit (aspname, angl, exactCrossingTime) =
+    toTransit aspname angl exactCrossingTime =
       Transit {
         aspect = aspname,
         lastPhase = ApplyingDirect,
