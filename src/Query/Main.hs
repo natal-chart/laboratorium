@@ -21,6 +21,8 @@ import Query.PlanetEphe
 import Data.Ord (Down(..))
 import Data.List (sortOn)
 import Data.Time.Format.ISO8601 (iso8601ParseM)
+import Data.Maybe (catMaybes)
+import Data.Foldable (toList)
 
 data QueryType
   = Retrogrades
@@ -28,6 +30,7 @@ data QueryType
   | Transits
   | Averages
   | LunarTransits
+  | NatalTransits
   deriving (Show, Read)
 
 data Options = Options
@@ -55,9 +58,33 @@ main opts@Options{optRangeStart, optRangeEnd, query} = do
     Crossings -> doCrossings epheStream
     Transits -> doTransits epheStream
     LunarTransits -> doLunarTransits opts
+    NatalTransits -> doNatalTransits opts epheStream
     Averages -> doPlanetAverages epheStream
 
 -- | Show all average speeds over a given period, descending
+
+doNatalTransits :: Options -> Stream (Of (Ephemeris Double)) IO () -> IO ()
+doNatalTransits _opts ephe = do 
+  bdUT <- iso8601ParseM "1989-01-06T23:30:00-06:00" :: IO ZonedTime
+  Just julian <- toJulianDay $ zonedTimeToUTC bdUT
+  Right natalEphe <- readEphemerisEasy False julian
+  allTransits :> _ <- ephe & selectNatalTransits natalEphe [(Mars, Neptune)]
+  forM_ (M.toAscList (getAggregate allTransits)) $ \(bodies@(transiting, _transited), transits) -> do
+    print bodies
+    putStrLn "-----------"
+    forM_ (getMerged transits) $ \Transit{aspect,transitOrb,transitStarts,transitEnds,transitCrosses, transitPhases} -> do
+      startsUT <- fromJulianDay transitStarts :: IO UTCTime
+      endsUT   <- fromJulianDay transitEnds   :: IO UTCTime
+      print (startsUT, endsUT, aspect, transitOrb)
+      exactAt <- mapM (exactCrossing transiting transitCrosses) (getMerged transitPhases)
+      let exactCrossings = catMaybes . toList $ exactAt
+      if not . null $ exactCrossings then
+        forM_ exactCrossings $ \exact -> do
+          exactUT <- fromJulianDay exact :: IO UTCTime
+          print ("Exact at", exactUT)
+      else
+        pure ()
+
 
 doLunarTransits :: Options -> IO ()
 doLunarTransits Options{optRangeStart, optRangeEnd} = do
@@ -67,9 +94,9 @@ doLunarTransits Options{optRangeStart, optRangeEnd} = do
   case natalEphe of
     Left _ -> fail "fuck"
     Right ne -> do
-      lunarTransits <- 
-        selectLunarTransits 
-          (julianMidnight $ dayToJulianDay optRangeStart) 
+      lunarTransits <-
+        selectLunarTransits
+          (julianMidnight $ dayToJulianDay optRangeStart)
           (julianMidnight $ dayToJulianDay optRangeEnd)
           ne
       forM_ (M.toAscList (getAggregate lunarTransits)) $ \(bodies@(_daMoon, _transited), transits) -> do
@@ -77,7 +104,7 @@ doLunarTransits Options{optRangeStart, optRangeEnd} = do
         print bodies
         putStrLn "================="
         forM_ (getMerged transits) $ \Transit{aspect, transitIsExact, transitStarts, transitEnds} -> do
-          let startsDay = dayFromJulianDay transitStarts 
+          let startsDay = dayFromJulianDay transitStarts
               endsDay = dayFromJulianDay transitEnds
           case transitIsExact of
             Nothing -> print (aspect, startsDay, endsDay)
@@ -138,13 +165,21 @@ doCrossings ephe = do
 doTransits :: EphemerisStream -> IO ()
 doTransits ephe = do
   allTransits :> _ <- ephe & interplanetaryTransits
-  forM_ (M.toAscList (getAggregate allTransits)) $ \(bodies@(_transiting, _transited), transits) -> do
+  forM_ (M.toAscList (getAggregate allTransits)) $ \(bodies@(transiting, _transited), transits) -> do
     print bodies
     putStrLn "-----------"
-    forM_ (getMerged transits) $ \Transit{aspect,lastPhase,transitOrb,transitStarts,transitEnds} -> do
+    forM_ (getMerged transits) $ \Transit{aspect,lastPhase,transitOrb,transitStarts,transitEnds,transitCrosses, transitPhases} -> do
       startsUT <- fromJulianDay transitStarts :: IO UTCTime
       endsUT   <- fromJulianDay transitEnds   :: IO UTCTime
       print (startsUT, endsUT, aspect, lastPhase, transitOrb)
+      exactAt <- mapM (exactCrossing transiting transitCrosses) (getMerged transitPhases)
+      let exactCrossings = catMaybes . toList $ exactAt
+      if not . null $ exactCrossings then
+        forM_ exactCrossings $ \exact -> do
+          exactUT <- fromJulianDay exact :: IO UTCTime
+          print ("Exact at", exactUT)
+      else
+        pure ()
 
 
 -- | Get all days in the given range, as @JulianDayTT@s

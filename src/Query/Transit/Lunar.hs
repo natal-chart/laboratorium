@@ -19,6 +19,7 @@
 --
 -- A similar function could be written for the Sun, with the appropriate mean solar speed.
 
+{-# LANGUAGE TupleSections #-}
 module Query.Transit.Lunar where
 
 import SwissEphemeris
@@ -26,7 +27,7 @@ import SwissEphemeris.Precalculated
 import Query.Transit.Types
 import qualified Data.Map as M
 import EclipticLongitude
-import Data.List
+import Data.List ( nub )
 import Data.Either
 import Query.Aggregate
 import Data.Foldable
@@ -59,9 +60,13 @@ lunarAspects start end pos =
           crossB = toEclipticLongitude pos - EclipticLongitude angle
       crossesA <- moonCrossingBetween (getEclipticLongitude crossA) start end
       crossesB <- moonCrossingBetween (getEclipticLongitude crossB) start end
-      pure . map (toTransit aspectName angle) . nub . rights $ [crossesA, crossesB]
+      pure 
+        . map (toTransit aspectName angle) 
+        . nub 
+        . rights 
+        $ [(,crossA) <$> crossesA, (,crossB) <$> crossesB]
 
-    toTransit aspname angl exactCrossingTime =
+    toTransit aspname angl (exactCrossingTime, exactCrossingLng) =
       Transit {
         aspect = aspname,
         lastPhase = ApplyingDirect,
@@ -71,7 +76,8 @@ lunarAspects start end pos =
         transitIsExact = Just exactCrossingTime,
         transitEnds = estimateEnd exactCrossingTime,
         transitProgress = mempty,
-        transitPhases = mempty
+        transitPhases = mempty,
+        transitCrosses = exactCrossingLng
       }
     -- from:
     -- https://github.com/aloistr/swisseph/blob/40a0baa743a7c654f0ae3331c5d9170ca1da6a6a/sweph.c#L8494

@@ -9,6 +9,7 @@ import Query.Aggregate
       Merge(..),
       HasUnion(union) )
 import qualified Data.Sequence as S
+import EclipticLongitude
 type EphemerisPoint = (JulianDayTT, EphemerisPosition Double)
 
 data Relation
@@ -68,6 +69,7 @@ data Transit = Transit {
 , transitProgress :: !(S.Seq (JulianDayTT, Double))
 , transitPhases :: !(MergeSeq TransitPhase)
 , transitIsExact :: !(Maybe JulianDayTT)
+, transitCrosses :: !EclipticLongitude
 } deriving (Show)
 
 instance Merge Transit where

@@ -148,12 +148,12 @@ mkTransit transiting@((t1, p11), (t2, p12)) _transited@(_t2', p22)
   = do
     let (before, after, transitedPos) = (epheLongitude p11, epheLongitude p12, epheLongitude p22)
     (aspectName, angle', orb', meets) <- determineAspect after transitedPos
-    let (before', after', ref) = normalize (before, after, meets)
+    let (before', after', ref) = normalize (before, after, getEclipticLongitude meets)
         station = movement transiting
         rel = relation before' after' ref
         phase = transitPhase station rel
         phaseInfo = singleton $ TransitPhase phase t1 t2
-    pure $ Transit aspectName phase angle' orb' t1 t2 [(t2,orb')] phaseInfo Nothing
+    pure $ Transit aspectName phase angle' orb' t1 t2 [(t2,orb')] phaseInfo Nothing meets
 
 
 -------------------------------------------------------------------------------
@@ -207,11 +207,11 @@ transitPhase StationaryRetrograde Crossed = TriggeredRetrograde
 transitPhase Retrograde Below = SeparatingRetrograde
 transitPhase StationaryRetrograde Below = SeparatingRetrograde
 
-determineAspect :: Double -> Double -> Maybe (AspectName, Double, Double, Double)
+determineAspect :: Double -> Double -> Maybe (AspectName, Double, Double, EclipticLongitude)
 determineAspect p1 p2 =
   headMaybe $ aspectCycle (EclipticLongitude p1) (EclipticLongitude p2)
 
-aspectCycle :: EclipticLongitude -> EclipticLongitude -> [(AspectName, Double, Double, Double)]
+aspectCycle :: EclipticLongitude -> EclipticLongitude -> [(AspectName, Double, Double, EclipticLongitude)]
 aspectCycle p1 p2 = do
   asp <- aspects
   let dist = p1 <-> p2
@@ -222,7 +222,7 @@ aspectCycle p1 p2 = do
       crossesAt =
         if p1 <-> crossA <= orb then crossA else crossB
   guard $ abs (theta - dist) <= maxOrb asp
-  pure (aspectName asp, dist, orb, getEclipticLongitude crossesAt)
+  pure (aspectName asp, dist, orb, crossesAt)
 
 headMaybe :: [a] -> Maybe a
 headMaybe [] = Nothing
