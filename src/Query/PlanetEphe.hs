@@ -1,5 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE NamedFieldPuns #-}
 module Query.PlanetEphe where
 
 import qualified Data.Map as M
@@ -20,6 +21,22 @@ type PlanetPositionSeq = Sq.Seq PlanetPosition
 
 type PlanetEphe = Aggregate Planet PlanetPositionSeq
 
+type PlanetSpeedAggr = Aggregate Planet PlanetSpeed
+
+data PlanetSpeed = PlanetSpeed !Double !Double
+
+instance HasUnion PlanetSpeed where
+  (PlanetSpeed spd1 count1) `union` (PlanetSpeed spd2 count2) =
+    PlanetSpeed (abs spd1 + abs spd2) (count1 + count2)
+
+planetSpeedAverage :: PlanetSpeed -> Double
+planetSpeedAverage (PlanetSpeed speedSum speedCount) =
+  speedSum / speedCount
+
+-- | a 'singleton' for a speed datum
+acc :: Double -> PlanetSpeed
+acc spd = PlanetSpeed spd 1
+
 planetEphemeris :: MonadIO m => [Planet] -> S.Stream (S.Of (Ephemeris Double)) m () -> m (S.Of PlanetEphe ())
 planetEphemeris selectedPlanets =
   S.mapM withUTC
@@ -37,3 +54,21 @@ mapPlanets selectedPlanets (ut, ephe) =
       Aggregate $ M.fromList [(ephePlanet pos, Sq.singleton (ut, pos))]
     else
       mempty
+
+planetAverageSpeeds
+  :: MonadIO m
+  => [Planet]
+  -> S.Stream (S.Of (Ephemeris Double)) m () -> m (S.Of PlanetSpeedAggr ())
+planetAverageSpeeds selectedPlanets = S.foldMap (mapAverages selectedPlanets)
+
+mapAverages :: [Planet] -> Ephemeris Double -> PlanetSpeedAggr
+mapAverages selectedPlanets ephe =
+  concatForEach selectedPlanets $ \planet ->
+    case ephe `forPlanet` planet of
+      Nothing -> mempty
+      Just EphemerisPosition{epheSpeed} ->
+        Aggregate $ M.fromList [(planet, acc epheSpeed)]
+
+getAverages :: S.Of PlanetSpeedAggr () -> M.Map Planet Double
+getAverages (allAggr S.:> _) =
+  planetSpeedAverage <$> getAggregate allAggr

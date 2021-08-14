@@ -33,6 +33,7 @@ library
     Chart.Main
     Chart.TransitOverview
     Chart.TransitProgress
+    EclipticLongitude
 
   -- other-extensions:
   build-depends:

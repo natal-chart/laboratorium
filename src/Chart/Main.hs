@@ -80,7 +80,7 @@ doOverview Options{optBirthday, optRangeStart, optRangeEnd, optTransitedPlanets,
   case transitedEphe of
     Left err -> fail err
     Right trEphe -> do
-      let transited = fromMaybe [] $ traverse (`forPlanet` trEphe) natalPlanets
+      let transited = fromMaybe [] $ traverse (forPlanet trEphe) natalPlanets
       traverse_ (transitChart allDays transitingEphe) transited
 
  

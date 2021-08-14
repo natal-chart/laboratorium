@@ -1,21 +1,20 @@
 {-# LANGUAGE NamedFieldPuns #-}
 module Chart.TransitProgress where
 
-import Data.Foldable (forM_, Foldable (toList, foldMap'))
+import Data.Foldable (forM_, Foldable (toList))
 import Data.Time
-  ( UTCTime
+  ( UTCTime, Day, getCurrentTime
   )
 import Graphics.Rendering.Chart.Backend.Diagrams (toFile)
 import Graphics.Rendering.Chart.Easy hiding (days)
 import SwissEphemeris
-  ( FromJulianDay (fromJulianDay)
+  ( FromJulianDay (fromJulianDay), dayFromJulianDay
   )
 import Query.Transit
 import Query.Aggregate
 import qualified Data.Map as M
-import Data.List (groupBy)
-import System.IO.Unsafe (unsafePerformIO)
 import Control.Monad (when)
+import Data.Time.Format.ISO8601
 
 
 transitProgressChart :: TransitMap -> Bool -> IO ()
@@ -24,27 +23,32 @@ transitProgressChart (Aggregate allTransits) verbose = do
     forM_ (M.toAscList allTransits) $ \(bodies, transits) -> do
       print bodies
       putStrLn "-------------"
-      forM_ (getMerged transits) $ \Transit{aspect,phase,transitStarts, transitEnds, transitProgress} -> do
+      forM_ (getMerged transits) $ \Transit{aspect,transitStarts, transitEnds, transitProgress, transitPhases} -> do
         startsUT <- fromJulianDay transitStarts :: IO UTCTime
         endsUT   <- fromJulianDay transitEnds   :: IO UTCTime
-        print (startsUT, endsUT, aspect, phase)
+        print (startsUT, endsUT, aspect)
         putStrLn "======================="
         forM_ transitProgress $ \(jd, orb) -> do
           ut <- fromJulianDay jd :: IO UTCTime
           putStrLn $ show ut <> ": " <> show orb
 
-  toFile def "transit_progress3.svg" $ do
+        putStrLn "======================="
+        forM_ (getMerged transitPhases) $ \TransitPhase{phaseName, phaseStarts, phaseEnds} -> do
+          startsUT' <- fromJulianDay phaseStarts :: IO UTCTime
+          endsUT'  <- fromJulianDay phaseEnds :: IO UTCTime
+          print (phaseName, startsUT', endsUT')
+
+  queryT <- getCurrentTime
+  
+  toFile def ("charts/transit_progress_" <> iso8601Show  queryT <> "_.svg") $ do
     layout_title .= "Transit Progress"
     layout_y_axis . laxis_reverse .= True
     forM_ (M.toAscList allTransits) $ \((transiting, transited), transits) ->
-      forM_ (groupBy (\t1 t2 -> aspect t1 == aspect t2) $ toList $ getMerged transits) $ \transitsByAspect -> do
-        let allProgress = toList $ foldMap' transitProgress transitsByAspect
-            aspectN = head transitsByAspect & aspect
-        plot (fillBetween (show transiting <> " " <> show aspectN <> " " <> show transited)
-          -- TODO: I probably want to go out and do this in an actual IO context
-          [(unsafePerformIO (fromJulianDay jd), (o, 5.0)) | (jd, o) <- allProgress])
+      forM_ (getMerged transits) $ \Transit{transitProgress, aspect}-> do
+        plot (fillBetween (show transiting <> " " <> show aspect <> " " <> show transited)
+          [(dayFromJulianDay jd, (o, 5.0)) | (jd, o) <- toList transitProgress])
 
-fillBetween :: String -> [(UTCTime, (Double , Double))] -> EC l2 (PlotFillBetween UTCTime Double)
+fillBetween :: String -> [(Day, (Double , Double))] -> EC l2 (PlotFillBetween Day Double)
 fillBetween title vs = liftEC $ do
   plot_fillbetween_title .= title
   color <- takeColor
