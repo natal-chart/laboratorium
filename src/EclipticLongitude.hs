@@ -1,4 +1,3 @@
-{-# LANGUAGE FlexibleInstances #-}
 module EclipticLongitude (
   EclipticLongitude(..),
   (<->),
