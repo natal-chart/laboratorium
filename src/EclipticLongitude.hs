@@ -7,7 +7,6 @@ module EclipticLongitude (
 
 import SwissEphemeris ( HasEclipticLongitude(..) )
 import Data.Fixed (mod')
-import SwissEphemeris.Precalculated
 
 newtype EclipticLongitude = 
   EclipticLongitude Double
@@ -43,7 +42,3 @@ infixl 6 <->
 
 toEclipticLongitude :: HasEclipticLongitude a => a -> EclipticLongitude
 toEclipticLongitude = EclipticLongitude . getEclipticLongitude
-
--- TODO move to swiss ephemeris
-instance (Real a, Eq a) => HasEclipticLongitude (EphemerisPosition a) where
-  getEclipticLongitude = realToFrac . epheLongitude

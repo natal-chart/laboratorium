@@ -51,6 +51,7 @@ library
     ,colonnade
     ,foldl
     ,vector
+    ,math-functions
   hs-source-dirs: src
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints
   default-language:    Haskell2010
