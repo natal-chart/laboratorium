@@ -1,9 +1,9 @@
 {-# LANGUAGE NamedFieldPuns #-}
 module CLI where
 
-import qualified TransitCharts as TC
 import qualified PrecalculatedEphemeris as PE
 import qualified Query.Main as Q
+import qualified Chart.Main as C
 import Options.Applicative
 import System.Directory (makeAbsolute)
 import SwissEphemeris.Precalculated (setEphe4Path)
@@ -17,7 +17,7 @@ main = do
   withEphemerides absoluteEphePath $
     case subcommand of
       Ephemeris opts -> PE.main opts
-      Charts opts -> TC.main opts
+      Charts opts -> C.main opts
       Query opts -> Q.main opts
 
 data Options = Options
@@ -27,7 +27,7 @@ data Options = Options
 
 data SubCommand
   = Ephemeris PE.Options
-  | Charts TC.Options
+  | Charts C.Options
   | Query Q.Options
 
 mainOptions :: Parser Options
@@ -37,7 +37,7 @@ mainOptions =
     <*> hsubparser (ephemerisCommand <> chartsCommand <> queryCommand)
   where
     ephemerisCommand = command "ephemeris" (info (Ephemeris <$> PE.mainOptions) (progDesc "Work with pre-calculated ephemeris"))
-    chartsCommand = command "charts" (info (Charts <$> TC.mainOptions) (progDesc "Work with transit charts"))
+    chartsCommand = command "charts" (info (Charts <$> C.mainOptions) (progDesc "Work with transit charts"))
     queryCommand = command "query" (info (Query <$> Q.mainOptions) (progDesc "Query events for an interval of time"))
     
 optsParser :: ParserInfo Options

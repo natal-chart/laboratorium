@@ -41,7 +41,7 @@ queryEphemeris queryDate allowFallback = do
       putStrLn $ "Ecliptic: " <> showDegrees epheEcliptic
       putStrLn $ "Nutation: " <> showDegrees epheNutation
       forM_ ([Sun .. Pluto] <> [MeanNode, TrueNode, MeanApog, Chiron]) $ \currentPlanet -> do
-        let position = currentPlanet `forPlanet` e
+        let position = e `forPlanet` currentPlanet
         case position of
           Nothing -> putStrLn $ show currentPlanet <> " N/A"
           Just EphemerisPosition{epheLongitude, epheSpeed} -> 

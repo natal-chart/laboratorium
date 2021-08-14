@@ -18,9 +18,9 @@ maintainer:          luis@astralarcanum.com
 
 library
   exposed-modules:
-    TransitCharts
     PrecalculatedEphemeris
     CLI
+    Util
     OptionParser
     Query.Main
     Query.Retrograde
@@ -30,6 +30,10 @@ library
     Query.Aggregate
     Query.Streaming
     Query.PlanetEphe
+    Chart.Main
+    Chart.TransitOverview
+    Chart.TransitProgress
+    EclipticLongitude
 
   -- other-extensions:
   build-depends:
@@ -47,6 +51,7 @@ library
     ,colonnade
     ,foldl
     ,vector
+    ,math-functions
   hs-source-dirs: src
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints
   default-language:    Haskell2010

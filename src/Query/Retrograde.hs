@@ -4,15 +4,14 @@
 {-# LANGUAGE DerivingVia #-}
 module Query.Retrograde where
 
-import Data.Sequence ((><), Seq(..), (|>), (<|), ViewL(..), ViewR(..))
-import qualified Data.Sequence as S
+import Data.Sequence (Seq(..), ViewL(..))
 import qualified Data.Map as M
 import SwissEphemeris
 import SwissEphemeris.Precalculated
 import Data.Foldable (toList)
 import Query.Common
     ( isRelativelyStationary, Station(..), concatForEach )
-import Query.Aggregate ( Aggregate(Aggregate), HasUnion(..) )
+import Query.Aggregate ( Aggregate(Aggregate), Merge (merge), MergeStrategy(..), Grouped, singleton )
 import Streaming ( Of, Stream )
 import qualified Streaming.Prelude as St
 import Query.Streaming ( ephemerisWindows )
@@ -23,26 +22,22 @@ data PlanetStation = PlanetStation
   , stationEnds :: !JulianDayTT
   , stationType :: !Station
   }
-  deriving (Show)
+  deriving (Eq, Show)
 
-newtype PlanetStationSeq =
-  PlanetStationSeq {getStations :: S.Seq PlanetStation}
-  deriving stock (Show)
-  deriving (Semigroup , Monoid) via (S.Seq PlanetStation)
-
-singleton :: PlanetStation -> PlanetStationSeq
-singleton = PlanetStationSeq . S.singleton
-
-instance HasUnion PlanetStationSeq where
-  (PlanetStationSeq s1) `union` (PlanetStationSeq s2) =
-    let s1Last = S.viewr s1
-        s2First = S.viewl s2
-    in if isStationary s2First then
-      PlanetStationSeq $ mergeStationary s1Last s2First
+instance Merge PlanetStation where
+  x `merge` y =
+    if stationType y == stationType x then
+      Merge merged
     else
-      PlanetStationSeq $ s1 <> s2
+      KeepBoth
+    where
+      merged = PlanetStation {
+        stationStarts = stationStarts x
+      , stationEnds   = stationEnds y
+      , stationType   = stationType y
+      }
 
-type RetrogradeMap = Aggregate Planet PlanetStationSeq
+type RetrogradeMap = Grouped Planet PlanetStation
 
 retrogrades :: Monad m => Stream (Of (Ephemeris Double)) m b -> m (Of RetrogradeMap b)
 retrogrades =
@@ -67,22 +62,6 @@ isStationary :: ViewL PlanetStation -> Bool
 isStationary EmptyL = False
 isStationary (PlanetStation{stationType} :< _) =
   stationType `elem` [StationaryDirect, StationaryRetrograde]
-
-mergeStationary :: ViewR PlanetStation -> ViewL PlanetStation -> Seq PlanetStation
-mergeStationary EmptyR EmptyL = S.empty
-mergeStationary EmptyR (x :< xs) = x <| xs
-mergeStationary (xs :> x) EmptyL = xs |> x
-mergeStationary (xs :> x) (y :< ys) =
-  if stationType y == stationType x then
-    (xs |> merged) ><  ys
-  else
-    (xs |> x) >< (y <| ys)
-  where
-    merged = PlanetStation {
-      stationStarts = stationStarts x
-    , stationEnds   = stationEnds y
-    , stationType   = stationType y
-    }
 
 mkStation :: (JulianDayTT, EphemerisPosition Double) -> (JulianDayTT, EphemerisPosition Double) -> Maybe PlanetStation
 mkStation (d1, pos1) (d2, pos2)
