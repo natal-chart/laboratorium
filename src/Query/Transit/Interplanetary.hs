@@ -220,7 +220,7 @@ aspectCycle p1 p2 = do
       crossA = p2 + EclipticLongitude theta
       crossB = p2 - EclipticLongitude theta
       crossesAt =
-        if p1 <-> crossA <= orb then crossA else crossB
+        if p1 <-> crossA <= p1 <-> crossB then crossA else crossB
   guard $ abs (theta - dist) <= maxOrb asp
   pure (aspectName asp, dist, orb, crossesAt)
 

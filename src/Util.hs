@@ -18,3 +18,6 @@ julianToday = do
   todayUT <- getCurrentTime 
   Just jd <- toJulianDay todayUT
   pure jd
+
+show' :: Show a => a -> String
+show' = (<> " ") . show

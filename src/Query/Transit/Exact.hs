@@ -32,14 +32,25 @@ exactCrossingOn transiting pos start end =
   where
     root' =
       ridders
-        RiddersParam {riddersMaxIter = 50, riddersTol = RelTol (4 * m_epsilon)}
+        -- keeping tolerance at 5 epsilon, needs to interpolate ~50 times to get
+        -- a fix on the sun's position; much fewer for others.
+        RiddersParam {riddersMaxIter = 50, riddersTol = RelTol (5 * m_epsilon)}
         (getJulianDay start, getJulianDay end)
         (longitudeIntersects transiting pos)
 
 longitudeIntersects :: Planet -> EclipticLongitude -> Double -> Double
 longitudeIntersects p soughtLongitude t =
-  getEclipticLongitude soughtLongitude - position
+  -- for the kind of comparisons we're making, the difference in linear distance
+  -- should be the same as the "shortest circle" ecliptic longitude distance; if it isn't,
+  -- it means there's a "jump" over the 0/360 line, and we ought to invert the operands
+  -- to get the desired signum.
+  if abs linearDist /= circleDist then
+    negate linearDist
+  else
+    linearDist
   where
+    circleDist = soughtLongitude <-> EclipticLongitude position
+    linearDist = getEclipticLongitude soughtLongitude - position
     -- TODO: ahhhhhhhhhhhhhhhhhhhhhhhhhh
     position = unsafePerformIO $ do
       --Debug.traceM $ "seeking: " <> show t <> " for planet " <>  show p <> "intersecting " <> show soughtLongitude
