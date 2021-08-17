@@ -6,8 +6,8 @@ import Query.Aggregate
     ( Grouped,
       MergeSeq,
       MergeStrategy(KeepBoth, Merge),
-      Merge(..),
-      HasUnion(union) )
+      Merge(..)
+    )
 import qualified Data.Sequence as S
 import EclipticLongitude
 type EphemerisPoint = (JulianDayTT, EphemerisPosition Double)
@@ -85,7 +85,7 @@ instance Merge Transit where
           transitAngle = transitAngle y,
           transitOrb = transitOrb y,
           transitProgress = transitProgress x <> transitProgress y,
-          transitPhases = transitPhases x `union` transitPhases y
+          transitPhases = transitPhases x <> transitPhases y
         }
 
 type TransitMap = Grouped (Planet, Planet) Transit

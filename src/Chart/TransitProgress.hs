@@ -39,14 +39,17 @@ transitProgressChart (Aggregate allTransits) verbose = do
           print (phaseName, startsUT', endsUT')
 
   queryT <- getCurrentTime
+  let fname = "charts/transit_progress_" <> iso8601Show  queryT <> ".svg"
   
-  toFile def ("charts/transit_progress_" <> iso8601Show  queryT <> "_.svg") $ do
+  toFile def fname $ do
     layout_title .= "Transit Progress"
     layout_y_axis . laxis_reverse .= True
     forM_ (M.toAscList allTransits) $ \((transiting, transited), transits) ->
       forM_ (getMerged transits) $ \Transit{transitProgress, aspect}-> do
         plot (fillBetween (show transiting <> " " <> show aspect <> " " <> show transited)
           [(dayFromJulianDay jd, (o, 5.0)) | (jd, o) <- toList transitProgress])
+  
+  print fname
 
 fillBetween :: String -> [(Day, (Double , Double))] -> EC l2 (PlotFillBetween Day Double)
 fillBetween title vs = liftEC $ do

@@ -8,27 +8,26 @@ import Numeric.RootFinding
 import Numeric.MathFunctions.Constants (m_epsilon)
 import System.IO.Unsafe (unsafePerformIO)
 import SwissEphemeris.Precalculated
-import qualified Debug.Trace as Debug
 
 
-exactCrossing :: Planet -> EclipticLongitude -> TransitPhase -> IO (Maybe JulianDayTT)
+exactCrossing :: Planet -> EclipticLongitude -> TransitPhase -> IO (Either String JulianDayTT)
 exactCrossing planet crossing TransitPhase{phaseName, phaseStarts, phaseEnds} =
-  case phaseName of
-    TriggeredDirect -> exactCrossingOn planet crossing phaseStarts phaseEnds
-    TriggeredRetrograde -> exactCrossingOn planet crossing phaseStarts phaseEnds
-    _ -> pure Nothing
+  if phaseName `elem` [TriggeredDirect, TriggeredRetrograde ] then
+    exactCrossingOn planet crossing phaseStarts phaseEnds
+  else
+    pure . Left $ "not triggered"
 
 exactCrossingOn
   :: Planet
   -> EclipticLongitude
   -> JulianDayTT
   -> JulianDayTT
-  -> IO (Maybe JulianDayTT)
+  -> IO (Either String JulianDayTT)
 exactCrossingOn transiting pos start end =
   case root' of
-    Root t -> pure $ Just $ mkJulianDay STT t
-    NotBracketed -> Debug.trace "not bracketed" $ pure Nothing
-    SearchFailed -> Debug.trace "search failed" $ pure Nothing
+    Root t -> pure . Right $ mkJulianDay STT t
+    NotBracketed -> pure . Left $ "not bracketed" 
+    SearchFailed -> pure . Left $ "search failed" 
   where
     root' =
       ridders
@@ -49,8 +48,8 @@ longitudeIntersects p soughtLongitude t =
   else
     linearDist
   where
-    circleDist = soughtLongitude <-> EclipticLongitude position
-    linearDist = getEclipticLongitude soughtLongitude - position
+    circleDist = soughtLongitude <-> position
+    linearDist = getEclipticLongitude soughtLongitude - getEclipticLongitude position
     -- TODO: ahhhhhhhhhhhhhhhhhhhhhhhhhh
     position = unsafePerformIO $ do
       --Debug.traceM $ "seeking: " <> show t <> " for planet " <>  show p <> "intersecting " <> show soughtLongitude
@@ -58,5 +57,4 @@ longitudeIntersects p soughtLongitude t =
       case ephe `forPlanet` p of
         Nothing -> fail "no ephe"
         Just EphemerisPosition{epheLongitude} -> do
-          --Debug.traceM $ "Lng found " <> show epheLongitude
-          pure epheLongitude
+          pure . EclipticLongitude $ epheLongitude

@@ -25,8 +25,8 @@ type PlanetSpeedAggr = Aggregate Planet PlanetSpeed
 
 data PlanetSpeed = PlanetSpeed !Double !Double
 
-instance HasUnion PlanetSpeed where
-  (PlanetSpeed spd1 count1) `union` (PlanetSpeed spd2 count2) =
+instance Semigroup PlanetSpeed where
+  (PlanetSpeed spd1 count1) <> (PlanetSpeed spd2 count2) =
     PlanetSpeed (abs spd1 + abs spd2) (count1 + count2)
 
 planetSpeedAverage :: PlanetSpeed -> Double

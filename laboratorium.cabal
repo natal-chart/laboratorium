@@ -23,6 +23,7 @@ library
     Util
     OptionParser
     Query.Main
+    Query.LunarPhase
     Query.Retrograde
     Query.Crossing
     Query.Transit
