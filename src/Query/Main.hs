@@ -23,7 +23,9 @@ import Data.List (sortOn)
 import Data.Time.Format.ISO8601 (iso8601ParseM)
 import Data.Foldable (toList)
 import Data.Either (rights)
-import Query.LunarPhase 
+import Query.LunarPhase
+import Query.Eclipse
+import Query.Almanac
 
 data QueryType
   = Retrogrades
@@ -33,6 +35,8 @@ data QueryType
   | LunarTransits
   | NatalTransits
   | LunarPhases
+  | Eclipses
+  | WorldAlmanac
   deriving (Show, Read)
 
 data Options = Options
@@ -43,14 +47,6 @@ data Options = Options
 
 type IntervalEphemeris = [Either String (Ephemeris Double)]
 type EphemerisStream = Stream (Of (Ephemeris Double)) IO ()
-
-data Zodiac = Zodiac
-  { signName :: ZodiacSignName, signLng :: Double}
-  deriving (Eq, Show)
-
-instance HasEclipticLongitude Zodiac where
-  getEclipticLongitude (Zodiac _ l) = l
-
 
 main :: Options -> IO ()
 main opts@Options{optRangeStart, optRangeEnd, query} = do
@@ -63,8 +59,35 @@ main opts@Options{optRangeStart, optRangeEnd, query} = do
     NatalTransits -> doNatalTransits opts epheStream
     Averages -> doPlanetAverages epheStream
     LunarPhases -> doLunarPhases epheStream
+    Eclipses -> doEclipses opts
+    WorldAlmanac -> doWorldAlmanac opts epheStream
 
 -- | Show all average speeds over a given period, descending
+
+doWorldAlmanac :: Options -> Stream (Of (Ephemeris Double)) IO () -> IO ()
+doWorldAlmanac Options{optRangeStart, optRangeEnd} ephe = do
+  almanac <- ephe & worldAlmanac (UTCTime optRangeStart 0) (UTCTime optRangeEnd 0)
+  forM_ (almanac & getAggregate & M.toAscList) $ \(day, events) -> do
+    print day
+    putStrLn "============="
+    mapM_ print events
+    --forM_ events $ \event -> 
+      
+
+doEclipses :: Options -> IO ()
+doEclipses Options{optRangeStart, optRangeEnd} = do
+  Just start <- toJulianDay (UTCTime optRangeStart 0) :: IO (Maybe JulianDayUT1)
+  Just end   <- toJulianDay (UTCTime optRangeEnd 0) :: IO (Maybe JulianDayUT1)
+  eclipses <- allEclipses start end
+  forM_ eclipses $ \ecl -> do
+    case ecl of
+      SolarEclipse t d -> do
+        exactAt <- fromJulianDay d :: IO UTCTime
+        print ("Solar Eclipse: ", t, exactAt)
+      LunarEclipse t d -> do
+        exactAt <- fromJulianDay d :: IO UTCTime
+        print ("Lunar Eclipse: ", t, exactAt)
+
 
 doLunarPhases :: Stream (Of (Ephemeris Double)) IO () -> IO ()
 doLunarPhases ephe = do
@@ -74,7 +97,7 @@ doLunarPhases ephe = do
     putStrLn "----------------------"
 
 doNatalTransits :: Options -> Stream (Of (Ephemeris Double)) IO () -> IO ()
-doNatalTransits _opts ephe = do 
+doNatalTransits _opts ephe = do
   bdUT <- iso8601ParseM "1989-01-06T23:30:00-06:00" :: IO ZonedTime
   Just julian <- toJulianDay $ zonedTimeToUTC bdUT
   Right natalEphe <- readEphemerisEasy False julian

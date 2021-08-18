@@ -7,6 +7,7 @@ import Query.Aggregate
 import qualified Streaming.Prelude as S
 import Streaming (Stream, Of)
 import EclipticLongitude
+import Data.Sequence (Seq ((:<|)))
 
 data LunarPhaseName
   = NewMoon
@@ -50,6 +51,12 @@ mapLunarPhases dayEphe =
       build n = LunarPhase n (epheDate dayEphe) (epheDate dayEphe)
   in maybe mempty (singleton . build) phase
 
+-- | Just to make it play nice with the other folds that look at two days
+-- at once.
+mapLunarPhases' :: Seq (Ephemeris Double) -> MergeSeq LunarPhase
+mapLunarPhases' (_day1 :<| day2 :<| _) =
+  mapLunarPhases day2 
+mapLunarPhases'  _ = mempty
 
 mkLunarPhase :: EphemerisPosition Double -> EphemerisPosition Double -> LunarPhaseName
 mkLunarPhase sun moon =

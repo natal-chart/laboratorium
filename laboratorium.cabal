@@ -22,7 +22,9 @@ library
     CLI
     Util
     OptionParser
+    Query.Eclipse
     Query.Main
+    Query.Almanac
     Query.LunarPhase
     Query.Retrograde
     Query.Crossing

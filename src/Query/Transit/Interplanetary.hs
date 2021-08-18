@@ -27,7 +27,7 @@ import SwissEphemeris.Precalculated
       EphemerisPosition(epheLongitude, epheSpeed) )
 import Query.Common
     ( Station(..), isRelativelyStationary, concatForEach )
-import Control.Lens (over, Each (each))
+import Control.Lens (over, Each (each), Bifunctor (bimap))
 import Data.Fixed (mod')
 import Control.Monad (guard, join)
 import Data.List (tails)
@@ -36,6 +36,7 @@ import Query.Aggregate ( Aggregate(Aggregate), singleton )
 import Query.Streaming ( ephemerisWindows )
 import Control.Category ((>>>))
 import EclipticLongitude ( EclipticLongitude(..), (<->) )
+import Data.Function
 
 interplanetaryTransits :: Monad m => St.Stream (St.Of (Ephemeris Double)) m b -> m (St.Of TransitMap b)
 interplanetaryTransits =
@@ -136,6 +137,12 @@ allPairs =
   uniquePairs <> selfPairs
   where
     selfPairs = zip defaultPlanets defaultPlanets
+
+filteredPairs :: [(Planet, Planet)] -> [Planet] -> [Planet] -> [(Planet, Planet)]
+filteredPairs pairs transiting transited =
+  pairs
+  & filter (uncurry (&&) . bimap (`elem` transiting) (`elem` transited)) 
+
 
 
 mkTransit

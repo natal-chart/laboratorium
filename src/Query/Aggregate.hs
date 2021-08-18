@@ -1,4 +1,5 @@
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DerivingVia #-}
 module Query.Aggregate where
 
 import qualified Data.Map.Strict as M
@@ -19,6 +20,7 @@ data MergeStrategy a
 newtype MergeSeq a =
   MergeSeq {getMerged :: S.Seq a}
   deriving stock (Show)
+  deriving Foldable via S.Seq
 
 singleton :: a -> MergeSeq a
 singleton = MergeSeq . S.singleton

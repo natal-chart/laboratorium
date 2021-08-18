@@ -48,6 +48,14 @@ instance Eq a => Merge (Crossing a) where
 
 type CrossingMap a = Grouped Planet (Crossing a)
 
+data Zodiac = Zodiac
+  { signName :: ZodiacSignName, signLng :: Double}
+  deriving (Eq, Show)
+
+instance HasEclipticLongitude Zodiac where
+  getEclipticLongitude (Zodiac _ l) = l
+
+
 crossings :: (Monad m, HasEclipticLongitude a) => [a] -> Stream (Of (Ephemeris Double)) m b -> m (Of (CrossingMap a) b)
 crossings degs =
   ephemerisWindows 2 >>> St.foldMap (mapCrossings degs)
@@ -70,10 +78,10 @@ mapCrossings degreesToCross (pos1 :<| pos2 :<| _) =
 mapCrossings _ _ = mempty
 
 mkCrossing :: HasEclipticLongitude a => (JulianDayTT, EphemerisPosition Double) -> (JulianDayTT, EphemerisPosition Double) -> a -> Maybe (Crossing a)
-mkCrossing (d1, pos1) (_d2, pos2) toCross
+mkCrossing (_d1, pos1) (d2, pos2) toCross
   | crossesDirect (epheLongitude pos1) (epheLongitude pos2) (getEclipticLongitude toCross) =
      Just $ Crossing {
-        crossingEnters = Just d1,
+        crossingEnters = Just d2,
         crossingExits = Nothing,
         crossingSubject = toCross,
         crossingPlanetEntered = Just Direct,

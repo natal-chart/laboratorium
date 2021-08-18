@@ -20,7 +20,6 @@ import Data.Function
 import Streaming (Stream, Of)
 import Query.Transit
 import Chart.TransitProgress
-import Data.Bifunctor (bimap)
 
 deriving instance Read Planet
 
@@ -84,11 +83,6 @@ doOverview Options{optBirthday, optRangeStart, optRangeEnd, optTransitedPlanets,
       traverse_ (transitChart allDays transitingEphe) transited
 
  
-filteredPairs :: [(Planet, Planet)] -> [Planet] -> [Planet] -> [(Planet, Planet)]
-filteredPairs pairs transiting transited =
-  pairs
-  & filter (uncurry (&&) . bimap (`elem` transiting) (`elem` transited)) 
-
 ---
 --- OPT UTILS
 --

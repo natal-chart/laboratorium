@@ -1,37 +1,53 @@
 module Query.Eclipse where
 
-import SwissEphemeris.Precalculated
 import SwissEphemeris
-import Query.Aggregate
-import qualified Streaming.Prelude as S
-import Streaming (Stream, Of)
-import EclipticLongitude
+    ( nextLunarEclipseWhen,
+      nextSolarEclipseWhen,
+      EventSearchDirection(SearchForward),
+      LunarEclipseType,
+      SolarEclipseType,
+      JulianDay(getJulianDay),
+      JulianDayUT1 )
 
 data Eclipse 
   = SolarEclipse !SolarEclipseType !JulianDayUT1 
   | LunarEclipse !LunarEclipseType !JulianDayUT1
+  deriving (Eq, Show)
+  
+getEclipseDate :: Eclipse -> JulianDayUT1
+getEclipseDate (SolarEclipse _ d) =d
+getEclipseDate (LunarEclipse _ d) =d
+
+allEclipses :: JulianDayUT1 -> JulianDayUT1 -> IO [Eclipse]
+allEclipses start end =
+  solarEclipses start end <> lunarEclipses start end
 
 solarEclipses :: JulianDayUT1 -> JulianDayUT1 -> IO [Eclipse]
-solarEclipses start end = undefined
+solarEclipses = unfoldEclipses anySolarEclipse SolarEclipse 
+ 
+lunarEclipses :: JulianDayUT1 -> JulianDayUT1 -> IO [Eclipse]
+lunarEclipses = unfoldEclipses anyLunarEclipse LunarEclipse
 
+unfoldEclipses 
+  :: (JulianDayUT1 -> IO (Either String (a, JulianDayUT1)))
+  -> (a -> JulianDayUT1 -> Eclipse)
+  -> JulianDayUT1 
+  -> JulianDayUT1 
+  -> IO [Eclipse]
+unfoldEclipses findEclipse mkEclipse start end = do
+  nextEclipse <- findEclipse start
+  case nextEclipse of
+    Left _ -> return []
+    Right (eclType, eclMax) -> do
+      if getJulianDay eclMax >= getJulianDay end then
+        return []
+      else do
+        others <- unfoldEclipses findEclipse mkEclipse eclMax end
+        let eclInfo = mkEclipse eclType eclMax
+        return (eclInfo : others)
+ 
+anySolarEclipse :: JulianDayUT1 -> IO (Either String (SolarEclipseType, JulianDayUT1))
+anySolarEclipse = nextSolarEclipseWhen [] SearchForward
 
----
--- loops:
--- https://hackage.haskell.org/package/monad-loops-0.4.3/docs/src/Control-Monad-Loops.html
----
--- | Analogue of @('Prelude.until')@
--- Yields the result of applying f until p holds.
-iterateUntilM :: (Monad m) => (a -> Bool) -> (a -> m a) -> a -> m a
-iterateUntilM p f v 
-    | p v       = return v
-    | otherwise = f v >>= iterateUntilM p f
-
--- |Execute an action repeatedly until its result satisfies a predicate,
--- and return that result (discarding all others).
-iterateUntil :: Monad m => (a -> Bool) -> m a -> m a
-iterateUntil p x = x >>= iterateUntilM p (const x)
-
--- |Execute an action repeatedly until its result fails to satisfy a predicate,
--- and return that result (discarding all others).
-iterateWhile :: Monad m => (a -> Bool) -> m a -> m a
-iterateWhile p = iterateUntil (not . p)
+anyLunarEclipse :: JulianDayUT1 -> IO (Either String (LunarEclipseType, JulianDayUT1))
+anyLunarEclipse = nextLunarEclipseWhen [] SearchForward
