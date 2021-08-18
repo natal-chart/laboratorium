@@ -36,8 +36,8 @@ instance Show EphemerisEvent where
     "Retrograde: " <> show' pl <> show stationType
   show (EphemerisZodiacCrossing (pl, Crossing{crossingSubject})) =
     "Crossing: " <> show' pl <> show crossingSubject
-  show (EphemerisTransit ((p1, p2), Transit{aspect})) =
-    "Transit: " <> show' p1 <> show' aspect <> show p2
+  show (EphemerisTransit ((p1, p2), Transit{aspect, lastPhase, transitOrb})) =
+    "Transit: " <> show' p1 <> show' aspect <> show' p2 <> show' lastPhase <> show transitOrb
   show (EphemerisLunarPhase LunarPhase{lunarPhaseName}) =
     "Moon Phase: " <> show lunarPhaseName
   show (EphemerisEclipse ecl) =
@@ -45,6 +45,10 @@ instance Show EphemerisEvent where
 
 type Calendar = Aggregate Day [EphemerisEvent]
 
+-- | Given a range of time, produce a map of days and events happening each day;
+-- useful for displaying a calendar where one simply wants to list what happens
+-- each day, without regard for "merging" things together. See the individual
+-- @select@ functions for that.
 worldAlmanac :: UTCTime -> UTCTime -> Stream (Of (Ephemeris Double)) IO () -> IO Calendar
 worldAlmanac start end ephe = do
   (retro, cross, trns, lun) :> _ <-
