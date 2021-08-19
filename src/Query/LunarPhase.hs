@@ -24,6 +24,7 @@ data LunarPhase = LunarPhase
   { lunarPhaseName :: !LunarPhaseName
   , lunarPhaseStarts :: !JulianDayTT
   , lunarPhaseEnds :: !JulianDayTT
+  , lunarLongitude :: !(Maybe EclipticLongitude)
   } deriving (Eq, Show)
 
 instance Merge LunarPhase where
@@ -48,7 +49,7 @@ mapLunarPhases dayEphe =
   let sunPos  = dayEphe `forPlanet` Sun
       moonPos = dayEphe `forPlanet` Moon
       phase   = mkLunarPhase <$> sunPos <*> moonPos
-      build n = LunarPhase n (epheDate dayEphe) (epheDate dayEphe)
+      build (n,pos) = LunarPhase n (epheDate dayEphe) (epheDate dayEphe) pos
   in maybe mempty (singleton . build) phase
 
 -- | Just to make it play nice with the other folds that look at two days
@@ -58,18 +59,23 @@ mapLunarPhases' (_day1 :<| day2 :<| _) =
   mapLunarPhases day2 
 mapLunarPhases'  _ = mempty
 
-mkLunarPhase :: EphemerisPosition Double -> EphemerisPosition Double -> LunarPhaseName
+-- | Get the phase the Moon is currently in, and, if New or Full, try to find the exact
+-- longitude of crossing.
+mkLunarPhase :: EphemerisPosition Double -> EphemerisPosition Double -> (LunarPhaseName, Maybe EclipticLongitude)
 mkLunarPhase sun moon =
-  if | diffDeg < 1+meanSpd                               -> NewMoon 
-     | diffDeg >= 1+meanSpd   && diffDeg < 90            -> WaxingCrescent
-     | diffDeg >= 90          && diffDeg < 90 + meanSpd  -> FirstQuarter 
-     | diffDeg >= 90+meanSpd  && diffDeg < 180           -> WaxingGibbous 
-     | diffDeg >= 180         && diffDeg < 180 + meanSpd -> FullMoon
-     | diffDeg >= 180+meanSpd && diffDeg < 270           -> WaningGibbous
-     | diffDeg >= 270         && diffDeg < 270 + meanSpd -> LastQuarter
-     | otherwise                                         -> WaningCrescent
+  if | diffDeg <  1+speed                            -> (NewMoon, findCrossingLng 0)
+     | diffDeg >= 1+speed   && diffDeg < 90          -> (WaxingCrescent, Nothing)
+     | diffDeg >= 90        && diffDeg < 90 + speed  -> (FirstQuarter, Nothing)
+     | diffDeg >= 90+speed  && diffDeg < 180         -> (WaxingGibbous, Nothing)
+     | diffDeg >= 180       && diffDeg < 180 + speed -> (FullMoon, findCrossingLng 180)
+     | diffDeg >= 180+speed && diffDeg < 270         -> (WaningGibbous, Nothing)
+     | diffDeg >= 270       && diffDeg < 270 + speed -> (LastQuarter, Nothing)
+     | otherwise                                     -> (WaningCrescent, Nothing)
   where
-  -- mean lunar speed: the "coarseness" of a day-to-day ephemeris is unlikely
-  -- to yield more precision than this when comparing longitudes.
-  meanSpd = 360.0/27.32
   diffDeg = getEclipticLongitude $ toEclipticLongitude moon - toEclipticLongitude sun
+  speed   = epheSpeed moon
+  findCrossingLng x = 
+    Just loc
+    where
+      off = diffDeg - x
+      loc = toEclipticLongitude moon - EclipticLongitude speed + EclipticLongitude off

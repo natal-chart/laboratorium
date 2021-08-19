@@ -1,7 +1,8 @@
 module Query.Streaming (
   streamEphe,
   streamEpheF,
-  ephemerisWindows
+  ephemerisWindows,
+  withUTC
 ) where
 
 
@@ -12,6 +13,7 @@ import SwissEphemeris.Precalculated
 import Query.Common
 import Data.Function
 import qualified Data.Sequence as Sq
+import SwissEphemeris (fromJulianDay)
 
 -- | Given start and end dates, produce a stream of
 -- 'Ephemeris'.
@@ -37,3 +39,8 @@ ephemerisWindows :: Monad m =>
   -> S.Stream (S.Of (Ephemeris Double)) m b
   -> S.Stream (S.Of (Sq.Seq (Ephemeris Double))) m b
 ephemerisWindows = S.slidingWindow
+
+withUTC :: MonadIO m => Ephemeris Double -> m (UTCTime, Ephemeris Double)
+withUTC ephe = do
+  ut <- liftIO . fromJulianDay $ epheDate ephe
+  pure (ut, ephe)
