@@ -57,10 +57,6 @@ instance Show EphemerisEvent where
 type Calendar = Aggregate Day [EphemerisEvent]
 type CalendarJD = Aggregate JulianDayTT [EphemerisEvent]
 
--- TODO: add to swissephe:
-instance Ord (JulianDay ts) where
-  jd1 `compare` jd2 = getJulianDay jd1 `compare` getJulianDay jd2
-
 -- | Given a range of time, produce a map of days and events happening each day;
 -- useful for displaying a calendar where one simply wants to list what happens
 -- each day, without regard for "merging" things together. See the individual
