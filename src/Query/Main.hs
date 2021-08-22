@@ -72,7 +72,7 @@ doWorldAlmanac Options{optRangeStart, optRangeEnd} ephe = do
     putStrLn "============="
     mapM_ print events
     --forM_ events $ \event -> 
-      
+
 
 doEclipses :: Options -> IO ()
 doEclipses Options{optRangeStart, optRangeEnd} = do
@@ -180,19 +180,13 @@ doCrossings ephe = do
     print planet
     putStrLn "-----------"
     forM_ (getMerged crossings') $ \Crossing{crossingEnters, crossingExits, crossingSubject} -> do
-      let startsUT = fromJulianDay <$> crossingEnters :: (Maybe (IO UTCTime))
-          endsUT = fromJulianDay <$> crossingExits :: (Maybe (IO UTCTime))
-      interval <-
-        case (startsUT, endsUT) of
-          (Nothing, Nothing) ->  pure ""
-          (Just starts, Nothing) -> do
-            ("starts: " <> ) . show <$> starts
-          (Nothing, Just ends) -> do
-            ("ends: " <> ) . show <$> ends
-          (Just starts, Just ends) -> do
-            starts' <- starts
-            ends' <- ends
-            pure $ show starts' <> " - " <> show ends'
+      startsUT <- fromJulianDay crossingEnters :: (IO UTCTime)
+      endsUT <- fromJulianDay  crossingExits :: (IO UTCTime)
+      let interval =
+            if startsUT == endsUT then
+              "starts: " <>  show startsUT
+            else
+              show startsUT <> " - " <> show endsUT
       putStrLn $ "In " <> show (signName crossingSubject) <> " ( " <> interval <> ")"
 
 doTransits :: EphemerisStream -> IO ()

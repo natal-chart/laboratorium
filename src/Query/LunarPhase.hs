@@ -1,4 +1,5 @@
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE TypeFamilies #-}
 module Query.LunarPhase where
 
 import SwissEphemeris.Precalculated
@@ -37,6 +38,11 @@ instance Merge LunarPhase where
       merged = x {
         lunarPhaseEnds = lunarPhaseEnds y
       }
+
+instance Temporal LunarPhase where
+  type TemporalIndex LunarPhase = JulianDayTT
+  startTime = lunarPhaseStarts
+  endTime = lunarPhaseEnds
 
 lunarPhases :: Monad m
   => Stream (Of (Ephemeris Double)) m b

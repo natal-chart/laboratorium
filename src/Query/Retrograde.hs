@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE TypeFamilies #-}
 module Query.Retrograde where
 
 import Data.Sequence (Seq(..), ViewL(..))
@@ -11,7 +12,7 @@ import SwissEphemeris.Precalculated
 import Data.Foldable (toList)
 import Query.Common
     ( isRelativelyStationary, Station(..), concatForEach )
-import Query.Aggregate ( Aggregate(Aggregate), Merge (merge), MergeStrategy(..), Grouped, singleton )
+import Query.Aggregate ( Aggregate(Aggregate), Merge (merge), MergeStrategy(..), Grouped, singleton, Temporal(..) )
 import Streaming ( Of, Stream )
 import qualified Streaming.Prelude as St
 import Query.Streaming ( ephemerisWindows )
@@ -36,6 +37,11 @@ instance Merge PlanetStation where
       , stationEnds   = stationEnds y
       , stationType   = stationType y
       }
+
+instance Temporal PlanetStation where
+  type TemporalIndex PlanetStation = JulianDayTT
+  startTime = stationStarts
+  endTime   = stationEnds
 
 type RetrogradeMap = Grouped Planet PlanetStation
 

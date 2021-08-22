@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeFamilies #-}
 module Query.Transit.Types where
 
 import SwissEphemeris ( Planet, JulianDayTT )
@@ -6,7 +7,7 @@ import Query.Aggregate
     ( Grouped,
       MergeSeq,
       MergeStrategy(KeepBoth, Merge),
-      Merge(..)
+      Merge(..), Temporal(..)
     )
 import qualified Data.Sequence as S
 import EclipticLongitude
@@ -87,6 +88,11 @@ instance Merge Transit where
           transitProgress = transitProgress x <> transitProgress y,
           transitPhases = transitPhases x <> transitPhases y
         }
+
+instance Temporal Transit where
+  type TemporalIndex Transit = JulianDayTT 
+  startTime = transitStarts
+  endTime = transitEnds
 
 type TransitMap = Grouped (Planet, Planet) Transit
 

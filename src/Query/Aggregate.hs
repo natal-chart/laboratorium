@@ -1,5 +1,6 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE TypeFamilies #-}
 module Query.Aggregate where
 
 import qualified Data.Map.Strict as M
@@ -8,6 +9,11 @@ import Data.Sequence (ViewR(EmptyR, (:>)), ViewL (EmptyL, (:<)), (<|), (|>), (><
 
 class Merge a where
   merge :: a -> a -> MergeStrategy a
+
+class Temporal a where
+  type TemporalIndex a
+  startTime :: a -> TemporalIndex a
+  endTime   :: a -> TemporalIndex a
 
 data MergeStrategy a
   = ReplaceBoth a a

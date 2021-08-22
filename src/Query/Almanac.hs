@@ -1,5 +1,6 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Query.Almanac where
 
 
@@ -83,15 +84,15 @@ worldAlmanac start end ephe = do
   pure $ asCal <> talliedEcl
 
   where
-    -- if you do `L.foldMap mapX tallyX`, you'll only get the events
+    -- if you do `foldByStartEnd`, you'll only get the events
     -- on the days they begin and end; if you do
-    -- `L.foldMap (mapX >>> tallyX) id`, you get them for each day
+    -- `foldEachDay`, you get them for each day
     -- they occur. For our calendar usage, the latter is useful; but
     -- for other applications, the former makes more sense.
     mkAlmanac =
-      (,,,) <$> L.foldMap (mapRetrogrades >>> tallyRetrogrades) id
-            <*> L.foldMap (mapCrossings zodiacs >>> tallyCrossings) id
-            <*> L.foldMap (mapTransits' chosenPairs >>> tallyTransits) id
+      (,,,) <$> foldEachDay mapRetrogrades EphemerisRetrograde
+            <*> foldEachDay (mapCrossings zodiacs) EphemerisZodiacCrossing
+            <*> foldEachDay (mapTransits' chosenPairs) EphemerisTransit
             <*> L.foldMap (mapLunarPhases' >>> tallyLunarPhases) id
     zodiacs = westernZodiacSigns
     chosenPairs =
@@ -99,6 +100,28 @@ worldAlmanac start end ephe = do
         uniquePairs
         (tail defaultPlanets) -- everyone but the Moon
         defaultPlanets
+
+-- | Given a function to obtain an aggregate of events, produce a Fold
+-- that will populate a "calendar" with an entry for every day each
+-- event happens.
+foldEachDay
+  :: (Ord (TemporalIndex a1), Temporal a1, Foldable t)
+  => (a2 -> Aggregate x (t a1))
+  -> ((x, a1) -> b) 
+  -> L.Fold a2 (Aggregate (TemporalIndex a1) [b])
+foldEachDay f g =
+  L.foldMap (f >>> asCalendar g) id
+
+-- | Given a function to obtain an aggregate of events, produce a Fold
+-- that will populate a "calendar" with entries only when the event
+-- starts and/or ends.
+foldByStartEnd 
+  :: (Semigroup (t a1), Temporal a1, Ord x, Ord (TemporalIndex a1), Foldable t) 
+  => (a2 -> Aggregate x (t a1))
+  -> ((x, a1) -> b)
+  -> L.Fold a2 (Aggregate (TemporalIndex a1) [b])
+foldByStartEnd f g=
+  L.foldMap f (asCalendarSpan g)
 
 toCalendar :: CalendarJD -> IO Calendar
 toCalendar =
@@ -124,48 +147,12 @@ tallyEclipses =
         (dateUT, [EphemerisEclipse ecl])
         ]
 
-
 tallyLunarPhases :: MergeSeq LunarPhase -> CalendarJD
 tallyLunarPhases =
   getMerged >>> toList >>> foldMap' locateLunarPhase
   where
-    locateLunarPhase phase@LunarPhase{lunarPhaseStarts} =
-      calendarAggregate [
-        (lunarPhaseStarts, [EphemerisLunarPhase phase])
-        ]
-
-tallyTransits :: TransitMap -> CalendarJD
-tallyTransits =
-  getAggregate >>> M.toList >>> foldMap' locateTransit
-  where
-    locateTransit (planets, transits') =
-      concatForEach (toList transits') $ \tr@Transit{transitStarts} ->
-        calendarAggregate [
-          (transitStarts, [EphemerisTransit (planets, tr)])
-          ]
-
-tallyCrossings :: CrossingMap Zodiac -> CalendarJD
-tallyCrossings =
-  getAggregate >>> M.toList >>> foldMap' locateCrossing
-  where
-    locateCrossing (planet, crossings') =
-      concatForEach (toList crossings') $ \cr@Crossing{crossingEnters} ->
-        calendarAggregate (start crossingEnters cr)
-      where
-        start :: Maybe JulianDayTT -> Crossing Zodiac -> [(JulianDayTT, [EphemerisEvent])]
-        start Nothing _ = mempty
-        start (Just jd) cr = do
-          [(jd, [EphemerisZodiacCrossing (planet, cr)])]
-
-tallyRetrogrades :: RetrogradeMap -> CalendarJD
-tallyRetrogrades =
-  getAggregate >>> M.toList >>> foldMap' locateRetrograde
-  where
-    locateRetrograde (planet, rs) =
-      concatForEach (toList rs) $ \st@PlanetStation{stationStarts} ->
-        calendarAggregate [
-          (stationStarts, [EphemerisRetrograde (planet, st)])
-          ]
+    locateLunarPhase phase = 
+      tallyStart phase EphemerisLunarPhase phase
 
 calendarAggregate :: [(JulianDayTT, [EphemerisEvent])] -> CalendarJD
 calendarAggregate = Aggregate . M.fromList
@@ -179,3 +166,49 @@ dayFromJDUT :: JulianDayUT1 -> IO Day
 dayFromJDUT jd = do
   (UTCTime ut _) <- fromJulianDay jd :: IO UTCTime
   pure ut
+
+-- | Given an aggregate of temporal values, produce an aggregate of
+-- said values indexed by their start time.
+asCalendar
+  :: (Temporal a, Ord (TemporalIndex a), Foldable t)
+  => ((x,a) -> b)
+  -> Aggregate x (t a)
+  -> Aggregate (TemporalIndex a) [b]
+asCalendar ins =
+  getAggregate >>> M.toList >>> foldMap' calendarize
+  where
+    calendarize (x,a) =
+      concatForEach (toList a) $ \el ->
+        tallyStart el ins (x,el)
+
+-- | Given an aggregate of temporal values, produce an aggregate of
+-- said values indexed by their start and end time.
+asCalendarSpan
+  :: (Temporal a, Ord (TemporalIndex a), Foldable t)
+  => ((x,a) -> b)
+  -> Aggregate x (t a)
+  -> Aggregate (TemporalIndex a) [b]
+asCalendarSpan ins =
+  getAggregate >>> M.toList >>> foldMap' calendarize
+  where
+    calendarize (x,a) =
+      concatForEach (toList a) $ \el ->
+        tallyStart el ins (x,el) <> tallyEnd el ins (x,el)
+
+tallyStart 
+  :: (Ord (TemporalIndex a1), Temporal a1)
+  => a1
+  -> (t -> a2)
+  -> t 
+  -> Aggregate (TemporalIndex a1) [a2]
+tallyStart el f el' =
+  Aggregate . M.fromList $ [(startTime el, [f el'])]
+
+tallyEnd
+  :: (Ord (TemporalIndex a1), Temporal a1)
+  => a1
+  -> (t -> a2)
+  -> t 
+  -> Aggregate (TemporalIndex a1) [a2]
+tallyEnd el f el' =
+  Aggregate . M.fromList $ [(startTime el, [f el'])]

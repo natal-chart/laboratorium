@@ -3,6 +3,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE TypeFamilies #-}
 module Query.Crossing where
 
 import SwissEphemeris
@@ -23,8 +24,8 @@ data SimplePlanetStation = Retrograde | Direct
   deriving (Eq, Show)
 
 data Crossing a = Crossing
-  { crossingEnters :: !(Maybe JulianDayTT)
-  , crossingExits :: !(Maybe JulianDayTT)
+  { crossingEnters :: !JulianDayTT
+  , crossingExits :: !JulianDayTT
   , crossingSubject :: !a
   , crossingPlanetEntered :: !(Maybe SimplePlanetStation)
   , crossingPlanetExited :: !(Maybe SimplePlanetStation)
@@ -45,6 +46,11 @@ instance Eq a => Merge (Crossing a) where
         crossingExits = crossingEnters y,
         crossingPlanetExited = crossingPlanetEntered y
       }
+      
+instance Temporal (Crossing a) where
+  type TemporalIndex (Crossing a) = JulianDayTT
+  startTime = crossingEnters
+  endTime = crossingExits
 
 type CrossingMap a = Grouped Planet (Crossing a)
 
@@ -81,8 +87,8 @@ mkCrossing :: HasEclipticLongitude a => (JulianDayTT, EphemerisPosition Double) 
 mkCrossing (_d1, pos1) (d2, pos2) toCross
   | crossesDirect (epheLongitude pos1) (epheLongitude pos2) (getEclipticLongitude toCross) =
      Just $ Crossing {
-        crossingEnters = Just d2,
-        crossingExits = Nothing,
+        crossingEnters = d2,
+        crossingExits = d2,
         crossingSubject = toCross,
         crossingPlanetEntered = Just Direct,
         crossingPlanetExited = Nothing
