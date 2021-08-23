@@ -116,6 +116,9 @@ worldAlmanac start end ephe = do
 --   populated by said event, instead of every day that it is in effect.
 natalAlmanac :: GeographicPosition -> UTCTime -> UTCTime -> UTCTime -> Stream (Of (Ephemeris Double)) IO () -> IO Calendar
 natalAlmanac geo birth start end ephe = do
+  -- TODO: these dates are okay, but the dates in @ephe@ are off due to the oversimplification
+  -- done in `julianDayRange` -- ideally we obtain ephemeris for the /exact/ UTC range, 
+  -- vs. the off-by-one range obtained by @julianDayRange@'s abuse of @gregorianToFake...@
   Just startTT <- toJulianDay start
   Just endTT   <- toJulianDay end
   Just birthTT  <- toJulianDay birth
