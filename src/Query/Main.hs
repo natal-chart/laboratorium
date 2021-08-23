@@ -72,7 +72,14 @@ doNatalAlmanac Options{optRangeStart, optRangeEnd} ephe = do
   forM_ (almanac & getAggregate & M.toAscList) $ \(day, events) -> do
     print day
     putStrLn "============="
-    mapM_ print events
+    forM_ events $ \event -> do
+      print event
+      exc <- exactEvent event
+      case exc of
+        Left _ -> pure ()
+        Right exct -> do
+          exactUT <- fromJulianDay exct :: IO UTCTime
+          print ("\tExact at:", exactUT)
  
 doWorldAlmanac :: Options -> Stream (Of (Ephemeris Double)) IO () -> IO ()
 doWorldAlmanac Options{optRangeStart, optRangeEnd} ephe = do
@@ -80,7 +87,15 @@ doWorldAlmanac Options{optRangeStart, optRangeEnd} ephe = do
   forM_ (almanac & getAggregate & M.toAscList) $ \(day, events) -> do
     print day
     putStrLn "============="
-    mapM_ print events
+    forM_ events $ \event -> do
+      print event
+      exc <- exactEvent event
+      case exc of
+        Left _ -> pure ()
+        Right exct -> do
+          exactUT <- fromJulianDay exct :: IO UTCTime
+          print ("Exact at:", exactUT)
+         
 
 
 doEclipses :: Options -> IO ()

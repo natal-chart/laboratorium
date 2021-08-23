@@ -64,6 +64,13 @@ instance Show EphemerisEvent where
 type Calendar = Aggregate Day [EphemerisEvent]
 type CalendarJD = Aggregate JulianDayTT [EphemerisEvent]
 
+exactEvent :: EphemerisEvent -> IO (Either String JulianDayTT)
+exactEvent (EphemerisTransit ((transiting, _transited), Transit{transitPhases, transitCrosses})) =
+  case toList . getMerged $ transitPhases of
+    [] -> pure . Left $ "not triggered"
+    (phase:_) ->  exactCrossing transiting transitCrosses phase
+exactEvent _ = pure . Left $ "not implemented"
+
 -- | Given a range of time, produce a map of days and events happening each day;
 -- useful for displaying a calendar where one simply wants to list what happens
 -- each day, without regard for "merging" things together. See the individual
