@@ -127,7 +127,7 @@ doNatalTransits _opts ephe = do
   bdUT <- iso8601ParseM "1989-01-06T23:30:00-06:00" :: IO ZonedTime
   Just julian <- toJulianDay $ zonedTimeToUTC bdUT
   Right natalEphe <- readEphemerisEasy False julian
-  allTransits :> _ <- ephe & selectNatalTransits natalEphe [(Mercury, Moon)]
+  allTransits :> _ <- ephe & selectNatalTransits natalEphe allPairs
   forM_ (M.toAscList (getAggregate allTransits)) $ \(bodies@(transiting, _transited), transits) -> do
     print bodies
     putStrLn "-----------"
@@ -189,7 +189,7 @@ doRetrogrades ephe = do
       endsUT <- fromJulianDay stationEnds :: IO UTCTime
       let interval =
             if stationType `elem` [Query.Common.Direct, Query.Common.Retrograde] then
-              show endsUT
+              show startsUT
             else
               show startsUT <> " - " <> show endsUT
       putStrLn $ show stationType <> " ( " <> interval <> ")"
