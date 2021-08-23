@@ -108,10 +108,10 @@ mapCrossings degreesToCross (pos1 :<| pos2 :<| _) =
 mapCrossings _ _ = mempty
 
 mkCrossing :: HasEclipticLongitude a => (JulianDayTT, EphemerisPosition Double) -> (JulianDayTT, EphemerisPosition Double) -> a -> Maybe (Crossing a)
-mkCrossing (_d1, pos1) (d2, pos2) toCross
+mkCrossing (d1, pos1) (d2, pos2) toCross
   | crossesDirect (epheLongitude pos1) (epheLongitude pos2) (getEclipticLongitude toCross) =
      Just $ Crossing {
-        crossingEnters = d2,
+        crossingEnters = d1,
         crossingExits = d2,
         crossingSubject = toCross,
         crossingPlanetEntered = Just Direct,
