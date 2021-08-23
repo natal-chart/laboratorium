@@ -65,10 +65,15 @@ type Calendar = Aggregate Day [EphemerisEvent]
 type CalendarJD = Aggregate JulianDayTT [EphemerisEvent]
 
 exactEvent :: EphemerisEvent -> IO (Either String JulianDayTT)
-exactEvent (EphemerisTransit ((transiting, _transited), Transit{transitPhases, transitCrosses})) =
-  case toList . getMerged $ transitPhases of
-    [] -> pure . Left $ "not triggered"
-    (phase:_) ->  exactCrossing transiting transitCrosses phase
+exactEvent (EphemerisTransit ((transiting, _transited), Transit{transitPhases, transitCrosses, transitIsExact})) =
+  if transiting == Moon then
+    case transitIsExact of
+      Nothing -> pure . Left $ "not triggered"
+      Just tt -> pure . Right $ tt
+  else
+    case toList . getMerged $ transitPhases of
+      [] -> pure . Left $ "not triggered"
+      (phase:_) ->  exactCrossing transiting transitCrosses phase
 exactEvent _ = pure . Left $ "not implemented"
 
 -- | Given a range of time, produce a map of days and events happening each day;

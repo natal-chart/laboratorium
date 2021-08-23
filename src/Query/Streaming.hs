@@ -1,6 +1,8 @@
 module Query.Streaming (
   streamEphe,
   streamEpheF,
+  streamEpheJD,
+  streamEpheJDF,
   ephemerisWindows,
   withUTC
 ) where
@@ -13,7 +15,7 @@ import SwissEphemeris.Precalculated
 import Query.Common
 import Data.Function
 import qualified Data.Sequence as Sq
-import SwissEphemeris (fromJulianDay)
+import SwissEphemeris (fromJulianDay, JulianDayTT)
 
 -- | Given start and end dates, produce a stream of
 -- 'Ephemeris'.
@@ -31,6 +33,22 @@ streamEphe onError start end =
 
 streamEpheF :: (MonadIO m, MonadFail m) => Day -> Day -> S.Stream (S.Of (Ephemeris Double)) m ()
 streamEpheF = streamEphe fail
+
+streamEpheJD :: MonadIO m => (String -> m x)
+  -> JulianDayTT
+  -> JulianDayTT
+  -> S.Stream (S.Of (Ephemeris Double)) m ()
+streamEpheJD onError start end =
+  S.each [start .. end]
+  & S.mapM (liftIO . readEphemerisEasy False)
+  & S.partitionEithers
+  -- thanks, ocharles:
+  -- https://www.reddit.com/r/haskell/comments/5x2g0r/streaming_package_vs_pipes_conduit_question_on/def39od?utm_source=share&utm_medium=web2x&context=3
+  & S.mapM_ (lift . onError)
+
+streamEpheJDF :: (MonadIO m, MonadFail m) => JulianDayTT -> JulianDayTT -> S.Stream (S.Of (Ephemeris Double)) m ()
+streamEpheJDF = streamEpheJD fail
+
 
 -- | Given a stream of ephemeris, produce "windowed"
 -- steps
