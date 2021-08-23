@@ -37,6 +37,7 @@ data QueryType
   | LunarPhases
   | Eclipses
   | WorldAlmanac
+  | NatalAlmanac
   deriving (Show, Read)
 
 data Options = Options
@@ -61,9 +62,18 @@ main opts@Options{optRangeStart, optRangeEnd, query} = do
     LunarPhases -> doLunarPhases epheStream
     Eclipses -> doEclipses opts
     WorldAlmanac -> doWorldAlmanac opts epheStream
+    NatalAlmanac -> doNatalAlmanac opts epheStream
 
--- | Show all average speeds over a given period, descending
-
+doNatalAlmanac :: Options -> Stream (Of (Ephemeris Double)) IO () -> IO ()
+doNatalAlmanac Options{optRangeStart, optRangeEnd} ephe = do
+  bdUT <- iso8601ParseM "1989-01-06T23:30:00-06:00" :: IO ZonedTime
+  let place = GeographicPosition {geoLat = 14.0839053, geoLng = -87.2750137}
+  almanac <- ephe & natalAlmanac place (zonedTimeToUTC bdUT) (UTCTime optRangeStart 0) (UTCTime optRangeEnd 0)
+  forM_ (almanac & getAggregate & M.toAscList) $ \(day, events) -> do
+    print day
+    putStrLn "============="
+    mapM_ print events
+ 
 doWorldAlmanac :: Options -> Stream (Of (Ephemeris Double)) IO () -> IO ()
 doWorldAlmanac Options{optRangeStart, optRangeEnd} ephe = do
   almanac <- ephe & worldAlmanac (UTCTime optRangeStart 0) (UTCTime optRangeEnd 0)
@@ -71,7 +81,6 @@ doWorldAlmanac Options{optRangeStart, optRangeEnd} ephe = do
     print day
     putStrLn "============="
     mapM_ print events
-    --forM_ events $ \event -> 
 
 
 doEclipses :: Options -> IO ()

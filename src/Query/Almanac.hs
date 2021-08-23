@@ -28,6 +28,7 @@ import Util (show')
 data EphemerisEvent
   = EphemerisRetrograde     (Planet, PlanetStation)
   | EphemerisZodiacCrossing (Planet, Crossing Zodiac)
+  | EphemerisHouseCrossing  (Planet, Crossing House)
   | EphemerisTransit        ((Planet, Planet), Transit)
   | EphemerisLunarPhase     LunarPhase
   | EphemerisEclipse        Eclipse
@@ -37,6 +38,8 @@ instance Show EphemerisEvent where
     "Retrograde: " <> show' pl <> show stationType
   show (EphemerisZodiacCrossing (pl, Crossing{crossingSubject})) =
     "Crossing: " <> show' pl <> (show . signName $ crossingSubject)
+  show (EphemerisHouseCrossing (pl, Crossing{crossingSubject})) =
+    "Crossing: " <> show' pl <> (show . houseName $ crossingSubject)
   show (EphemerisTransit ((p1, p2), Transit{aspect, lastPhase, transitOrb})) =
     "Transit: " <> show' p1 <> show' aspect <> show' p2 <> show' lastPhase <> show transitOrb
   show (EphemerisLunarPhase LunarPhase{lunarPhaseName, lunarLongitude}) =
@@ -100,6 +103,52 @@ worldAlmanac start end ephe = do
         uniquePairs
         (tail defaultPlanets) -- everyone but the Moon
         defaultPlanets
+
+-- | Given a range of time, produce a map of days and events happening each day;
+-- useful for displaying a calendar where one simply wants to list what happens
+-- each day, without regard for "merging" things together. See the individual
+-- @select@ functions for that.
+-- To tally differently, we'd have to:
+-- * Add an EventType (Starts | Ends) data type, attributed to Events
+-- * For each tallyX function, add /both/ the start and end timestamps
+-- * Use the `L.foldMap mapX tallyX` approach so the tallying happens at the end
+--   and merging is applied; i.e. we'd only get the days when an event starts or ends
+--   populated by said event, instead of every day that it is in effect.
+natalAlmanac :: GeographicPosition -> UTCTime -> UTCTime -> UTCTime -> Stream (Of (Ephemeris Double)) IO () -> IO Calendar
+natalAlmanac geo birth start end ephe = do
+  Just startTT <- toJulianDay start
+  Just endTT   <- toJulianDay end
+  Just birthTT  <- toJulianDay birth
+  Just birthUT1 <- toJulianDay birth
+
+  natalEphe' <- readEphemerisEasy True birthTT
+  case natalEphe' of
+    Left e -> fail e
+    Right natalEphe -> do
+      CuspsCalculation{houseCusps} <- calculateCusps Placidus birthUT1 geo
+      let houses = zipWith House [I .. XII] houseCusps
+      (cross, trns) :> _ <-
+        ephe
+        & ephemerisWindows 2
+        & L.purely S.fold (mkAlmanac natalEphe houses)
+    
+      lun <- selectLunarTransits startTT endTT natalEphe
+      let talliedEcl = asCalendar EphemerisTransit lun
+    
+      asCal <- toCalendar $ cross <> trns
+      asCalLun <- toCalendar talliedEcl
+      pure $ asCal <> asCalLun 
+
+  where
+    mkAlmanac n houses =
+      (,) <$> foldEachDay (mapCrossings houses)   EphemerisHouseCrossing
+          <*> foldEachDay (mapNatalTransits n chosenPairs) EphemerisTransit
+    chosenPairs =
+      filteredPairs
+        allPairs
+        (tail defaultPlanets)
+        defaultPlanets
+
 
 -- | Given a function to obtain an aggregate of events, produce a Fold
 -- that will populate a "calendar" with an entry for every day each

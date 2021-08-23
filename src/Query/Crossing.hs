@@ -61,6 +61,28 @@ data Zodiac = Zodiac
 instance HasEclipticLongitude Zodiac where
   getEclipticLongitude (Zodiac _ l) = l
 
+data HouseName
+  = I
+  | II
+  | III
+  | IV
+  | V
+  | VI
+  | VII
+  | VIII
+  | IX
+  | X
+  | XI
+  | XII
+  deriving (Eq, Show, Enum, Ord)
+
+data House = House
+  { houseName :: HouseName, houseCusp :: Double }
+  deriving (Eq, Show)
+  
+instance HasEclipticLongitude House where
+  getEclipticLongitude = houseCusp
+
 
 crossings :: (Monad m, HasEclipticLongitude a) => [a] -> Stream (Of (Ephemeris Double)) m b -> m (Of (CrossingMap a) b)
 crossings degs =
