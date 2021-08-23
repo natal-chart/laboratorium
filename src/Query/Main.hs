@@ -53,7 +53,7 @@ main :: Options -> IO ()
 main opts@Options{optRangeStart, optRangeEnd, query} = do
   Just tt1 <- toJulianDay (UTCTime optRangeStart 0)
   Just tt2 <- toJulianDay (UTCTime optRangeEnd 0)
-  let epheStream = streamEpheJDF (pred tt1) (succ tt2)
+  let epheStream = streamEpheJDF tt1 tt2
   case query of
     Retrogrades -> doRetrogrades epheStream
     Crossings -> doCrossings epheStream
