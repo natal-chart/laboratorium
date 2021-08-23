@@ -94,7 +94,7 @@ instance Temporal Transit where
   startTime = transitStarts
   endTime = transitEnds
 
-type TransitMap = Grouped (Planet, Planet) Transit
+type TransitMap a = Grouped (Planet, a) Transit
 
 sextile, square, trine, opposition, conjunction :: Aspect
 conjunction = Aspect Conjunction 0 5 5

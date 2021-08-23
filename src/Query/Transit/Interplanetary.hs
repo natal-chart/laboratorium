@@ -20,7 +20,7 @@ import qualified Data.Map as M
 import SwissEphemeris
     ( HasEclipticLongitude(getEclipticLongitude),
       Planet(Pluto, Moon, Mercury, Venus, Sun, Mars, Jupiter, MeanApog,
-             Saturn, MeanNode, Chiron, Uranus, Neptune) )
+             Saturn, MeanNode, Chiron, Uranus, Neptune), JulianDayTT )
 import SwissEphemeris.Precalculated
     ( planetEphe,
       Ephemeris(epheDate),
@@ -38,20 +38,20 @@ import Control.Category ((>>>))
 import EclipticLongitude ( EclipticLongitude(..), (<->) )
 import Data.Function
 
-interplanetaryTransits :: Monad m => St.Stream (St.Of (Ephemeris Double)) m b -> m (St.Of TransitMap b)
+interplanetaryTransits :: Monad m => St.Stream (St.Of (Ephemeris Double)) m b -> m (St.Of (TransitMap Planet) b)
 interplanetaryTransits =
   ephemerisWindows 2
   >>> St.foldMap mapTransits
 
-selectTransits :: Monad m => [(Planet, Planet)] -> St.Stream (St.Of (Ephemeris Double)) m b -> m (St.Of TransitMap b)
+selectTransits :: Monad m => [(Planet, Planet)] -> St.Stream (St.Of (Ephemeris Double)) m b -> m (St.Of (TransitMap Planet) b)
 selectTransits selectedTransits =
   ephemerisWindows 2 >>> St.foldMap (mapTransits' selectedTransits)
 
-selectNatalTransits :: Monad m => Ephemeris Double -> [(Planet, Planet)] -> St.Stream (St.Of (Ephemeris Double)) m b -> m (St.Of TransitMap b)
+selectNatalTransits :: Monad m => Ephemeris Double -> [(Planet, Planet)] -> St.Stream (St.Of (Ephemeris Double)) m b -> m (St.Of (TransitMap Planet) b)
 selectNatalTransits natalEphemeris selectedTransits =
   ephemerisWindows 2 >>> St.foldMap (mapNatalTransits natalEphemeris selectedTransits)
 
-mapTransits' :: [(Planet, Planet)] -> Seq (Ephemeris Double) -> TransitMap
+mapTransits' :: [(Planet, Planet)] -> Seq (Ephemeris Double) -> TransitMap Planet
 mapTransits' chosenPairs (day1Ephe :<| day2Ephe :<| _) =
   concatForEach chosenPairs $ \pair@(planet1, planet2) ->
       let planet1Ephe1 = (epheDate day1Ephe,) <$> planetEphe planet1 day1Ephe
@@ -65,10 +65,10 @@ mapTransits' chosenPairs (day1Ephe :<| day2Ephe :<| _) =
 
 mapTransits' _ _ = mempty
 
-mapTransits :: Seq (Ephemeris Double) -> TransitMap
+mapTransits :: Seq (Ephemeris Double) -> TransitMap Planet
 mapTransits = mapTransits' uniquePairs
 
-mapNatalTransits :: Ephemeris Double -> [(Planet, Planet)] -> Seq (Ephemeris Double) -> TransitMap
+mapNatalTransits :: Ephemeris Double -> [(Planet, Planet)] -> Seq (Ephemeris Double) -> TransitMap Planet
 mapNatalTransits natalEphemeris chosenPairs (day1Ephe :<| day2Ephe :<| _) =
   concatForEach chosenPairs $ \pair@(planet1, planet2) ->
       let planet1Ephe1 = (epheDate day1Ephe,) <$> planetEphe planet1 day1Ephe
@@ -82,6 +82,24 @@ mapNatalTransits natalEphemeris chosenPairs (day1Ephe :<| day2Ephe :<| _) =
         Just transit -> Aggregate $ M.fromList [(pair, singleton transit)]
 
 mapNatalTransits _ _ _ = mempty
+
+mapCuspTransits :: (HasEclipticLongitude a, Ord a) => [a] -> [Planet] -> Seq (Ephemeris Double) -> TransitMap a
+mapCuspTransits cusps chosenPlanets (day1Ephe :<| day2Ephe :<| _) =
+  concatForEach (cProduct chosenPlanets cusps )$ \pair@(planet1, cusp) ->
+      let planet1Ephe1 = (epheDate day1Ephe,) <$> planetEphe planet1 day1Ephe
+          planet1Ephe2 = (epheDate day2Ephe,) <$> planetEphe planet1 day2Ephe
+
+          planet2Ephe2 = Just (epheDate day2Ephe,cusp) 
+          planet1Ephes = liftA2 (,) planet1Ephe1 planet1Ephe2
+          transit' = join $ mkTransit <$> planet1Ephes <*> planet2Ephe2
+      in case transit' of
+        Nothing -> mempty
+        Just transit -> Aggregate $ M.fromList [(pair, singleton transit)]
+
+mapCuspTransits _ _ _ = mempty
+
+cProduct :: [Planet] -> [a] -> [(Planet, a)]
+cProduct ps as = [(p,a) | p <- ps, a <- as]
 
 staticPosition :: Maybe (EphemerisPosition Double) -> Maybe (EphemerisPosition Double)
 staticPosition (Just pos) = Just $ pos{epheSpeed = 0.0}
@@ -146,14 +164,15 @@ filteredPairs pairs transiting transited =
 
 
 mkTransit
-  :: (EphemerisPoint, EphemerisPoint)
+  :: HasEclipticLongitude a
+  => (EphemerisPoint, EphemerisPoint)
   -- ^ planet 1 at days 1->2
-  -> EphemerisPoint
+  -> (JulianDayTT, a)
   -- ^ planet 2 at day 2
   -> Maybe Transit
-mkTransit transiting@((t1, p11), (t2, p12)) _transited@(_t2', p22)
+mkTransit transiting@((t1, p11), (t2, p12)) (_t22, p22)
   = do
-    let (before, after, transitedPos) = (epheLongitude p11, epheLongitude p12, epheLongitude p22)
+    let (before, after, transitedPos) = (epheLongitude p11, epheLongitude p12, getEclipticLongitude p22)
     (aspectName, angle', orb', meets) <- determineAspect after transitedPos
     let (before', after', ref) = normalize (before, after, getEclipticLongitude meets)
         station = movement transiting

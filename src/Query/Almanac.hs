@@ -30,6 +30,7 @@ data EphemerisEvent
   | EphemerisZodiacCrossing (Planet, Crossing Zodiac)
   | EphemerisHouseCrossing  (Planet, Crossing House)
   | EphemerisTransit        ((Planet, Planet), Transit)
+  | EphemerisHouseTransit   ((Planet, House), Transit)
   | EphemerisLunarPhase     LunarPhase
   | EphemerisEclipse        Eclipse
 
@@ -41,6 +42,8 @@ instance Show EphemerisEvent where
   show (EphemerisHouseCrossing (pl, Crossing{crossingSubject})) =
     "Crossing: " <> show' pl <> (show . houseName $ crossingSubject)
   show (EphemerisTransit ((p1, p2), Transit{aspect, lastPhase, transitOrb})) =
+    "Transit: " <> show' p1 <> show' aspect <> show' p2 <> show' lastPhase <> show transitOrb
+  show (EphemerisHouseTransit ((p1, p2), Transit{aspect, lastPhase, transitOrb})) =
     "Transit: " <> show' p1 <> show' aspect <> show' p2 <> show' lastPhase <> show transitOrb
   show (EphemerisLunarPhase LunarPhase{lunarPhaseName, lunarLongitude}) =
     "Moon Phase: " <> show' lunarPhaseName <> zodiac
@@ -130,27 +133,31 @@ natalAlmanac geo birth start end ephe = do
     Right natalEphe -> do
       CuspsCalculation{houseCusps} <- calculateCusps Placidus birthUT1 geo
       let houses = zipWith House [I .. XII] houseCusps
-      (cross, trns) :> _ <-
+      (cross, trns, cuspTrns) :> _ <-
         ephe
         & ephemerisWindows 2
         & L.purely S.fold (mkAlmanac natalEphe houses)
-    
+
       lun <- selectLunarTransits startTT endTT natalEphe
       let talliedEcl = asCalendar EphemerisTransit lun
-    
-      asCal <- toCalendar $ cross <> trns
+
+      asCal <- toCalendar $ cross <> trns <> cuspTrns
       asCalLun <- toCalendar talliedEcl
-      pure $ asCal <> asCalLun 
+      pure $ asCal <> asCalLun
 
   where
     mkAlmanac n houses =
-      (,) <$> foldEachDay (mapCrossings houses)   EphemerisHouseCrossing
-          <*> foldEachDay (mapNatalTransits n chosenPairs) EphemerisTransit
+      (,,) <$> foldEachDay (mapCrossings houses)   EphemerisHouseCrossing
+           <*> foldEachDay (mapNatalTransits n chosenPairs) EphemerisTransit
+           <*> foldEachDay (mapCuspTransits  (filterHouses houses) sansMoon) EphemerisHouseTransit
+    filterHouses houses =
+      houses & filter (houseName >>> (`elem` [I, X]))
     chosenPairs =
       filteredPairs
         allPairs
         (tail defaultPlanets)
         defaultPlanets
+    sansMoon = filter (Moon /=) defaultPlanets
 
 
 -- | Given a function to obtain an aggregate of events, produce a Fold
@@ -159,7 +166,7 @@ natalAlmanac geo birth start end ephe = do
 foldEachDay
   :: (Ord (TemporalIndex a1), Temporal a1, Foldable t)
   => (a2 -> Aggregate x (t a1))
-  -> ((x, a1) -> b) 
+  -> ((x, a1) -> b)
   -> L.Fold a2 (Aggregate (TemporalIndex a1) [b])
 foldEachDay f g =
   L.foldMap (f >>> asCalendar g) id
@@ -167,8 +174,8 @@ foldEachDay f g =
 -- | Given a function to obtain an aggregate of events, produce a Fold
 -- that will populate a "calendar" with entries only when the event
 -- starts and/or ends.
-foldByStartEnd 
-  :: (Semigroup (t a1), Temporal a1, Ord x, Ord (TemporalIndex a1), Foldable t) 
+foldByStartEnd
+  :: (Semigroup (t a1), Temporal a1, Ord x, Ord (TemporalIndex a1), Foldable t)
   => (a2 -> Aggregate x (t a1))
   -> ((x, a1) -> b)
   -> L.Fold a2 (Aggregate (TemporalIndex a1) [b])
@@ -203,7 +210,7 @@ tallyLunarPhases :: MergeSeq LunarPhase -> CalendarJD
 tallyLunarPhases =
   getMerged >>> toList >>> foldMap' locateLunarPhase
   where
-    locateLunarPhase phase = 
+    locateLunarPhase phase =
       tallyStart phase EphemerisLunarPhase phase
 
 calendarAggregate :: [(JulianDayTT, [EphemerisEvent])] -> CalendarJD
@@ -247,11 +254,11 @@ asCalendarSpan ins =
       concatForEach (toList a) $ \el ->
         tallyStart el ins (x,el) <> tallyEnd el ins (x,el)
 
-tallyStart 
+tallyStart
   :: (Ord (TemporalIndex a1), Temporal a1)
   => a1
   -> (t -> a2)
-  -> t 
+  -> t
   -> Aggregate (TemporalIndex a1) [a2]
 tallyStart el f el' =
   Aggregate . M.fromList $ [(startTime el, [f el'])]
@@ -260,7 +267,7 @@ tallyEnd
   :: (Ord (TemporalIndex a1), Temporal a1)
   => a1
   -> (t -> a2)
-  -> t 
+  -> t
   -> Aggregate (TemporalIndex a1) [a2]
 tallyEnd el f el' =
   Aggregate . M.fromList $ [(startTime el, [f el'])]

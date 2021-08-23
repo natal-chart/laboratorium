@@ -33,11 +33,11 @@ import Query.Aggregate
 import Data.Foldable
 import Data.Sequence (fromList)
 
-selectLunarTransits :: JulianDayTT -> JulianDayTT -> Ephemeris Double -> IO TransitMap
+selectLunarTransits :: JulianDayTT -> JulianDayTT -> Ephemeris Double -> IO (TransitMap Planet)
 selectLunarTransits start end natalEphemeris =
   foldMap' mkLunarTransit (ephePositions natalEphemeris)
   where
-    mkLunarTransit :: EphemerisPosition Double -> IO TransitMap
+    mkLunarTransit :: EphemerisPosition Double -> IO (TransitMap Planet)
     mkLunarTransit pos = do
       transit <- lunarAspects start end pos --(EclipticLongitude . epheLongitude $ pos)
       if null transit then

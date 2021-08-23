@@ -8,7 +8,7 @@ import Data.Time
 import Graphics.Rendering.Chart.Backend.Diagrams (toFile)
 import Graphics.Rendering.Chart.Easy hiding (days)
 import SwissEphemeris
-  ( FromJulianDay (fromJulianDay), dayFromJulianDay
+  ( FromJulianDay (fromJulianDay), dayFromJulianDay, Planet
   )
 import Query.Transit
 import Query.Aggregate
@@ -17,7 +17,7 @@ import Control.Monad (when)
 import Data.Time.Format.ISO8601
 
 
-transitProgressChart :: TransitMap -> Bool -> IO ()
+transitProgressChart :: TransitMap Planet -> Bool -> IO ()
 transitProgressChart (Aggregate allTransits) verbose = do
   when verbose $ do
     forM_ (M.toAscList allTransits) $ \(bodies, transits) -> do
@@ -40,7 +40,7 @@ transitProgressChart (Aggregate allTransits) verbose = do
 
   queryT <- getCurrentTime
   let fname = "charts/transit_progress_" <> iso8601Show  queryT <> ".svg"
-  
+
   toFile def fname $ do
     layout_title .= "Transit Progress"
     layout_y_axis . laxis_reverse .= True
@@ -48,7 +48,7 @@ transitProgressChart (Aggregate allTransits) verbose = do
       forM_ (getMerged transits) $ \Transit{transitProgress, aspect}-> do
         plot (fillBetween (show transiting <> " " <> show aspect <> " " <> show transited)
           [(dayFromJulianDay jd, (o, 5.0)) | (jd, o) <- toList transitProgress])
-  
+
   print fname
 
 fillBetween :: String -> [(Day, (Double , Double))] -> EC l2 (PlotFillBetween Day Double)

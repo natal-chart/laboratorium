@@ -83,6 +83,8 @@ data House = House
 instance HasEclipticLongitude House where
   getEclipticLongitude = houseCusp
 
+instance Ord House where
+  a `compare` b = compare (houseCusp a) (houseCusp b)
 
 crossings :: (Monad m, HasEclipticLongitude a) => [a] -> Stream (Of (Ephemeris Double)) m b -> m (Of (CrossingMap a) b)
 crossings degs =
