@@ -17,31 +17,7 @@ import Streaming ( Of, Stream )
 import qualified Streaming.Prelude as St
 import Query.Streaming ( ephemerisWindows )
 import Control.Arrow ((>>>))
-
-data PlanetStation = PlanetStation
-  { stationStarts :: !JulianDayTT
-  , stationEnds :: !JulianDayTT
-  , stationType :: !Station
-  }
-  deriving (Eq, Show)
-
-instance Merge PlanetStation where
-  x `merge` y =
-    if stationType y == stationType x then
-      Merge merged
-    else
-      KeepBoth
-    where
-      merged = PlanetStation {
-        stationStarts = stationStarts x
-      , stationEnds   = stationEnds y
-      , stationType   = stationType y
-      }
-
-instance Temporal PlanetStation where
-  type TemporalIndex PlanetStation = JulianDayTT
-  startTime = stationStarts
-  endTime   = stationEnds
+import Query.EventTypes
 
 type RetrogradeMap = Grouped Planet PlanetStation
 
@@ -64,6 +40,24 @@ mapRetrogrades (pos1 :<| pos2 :<| _) =
 
 mapRetrogrades _ = mempty
 
+-- | Given ephemeris for two consecutive days, determine if a planet has changed
+-- direction, or entered a stationary phase.
+getRetrogrades :: Seq (Ephemeris Double) -> Grouped Planet Event
+getRetrogrades (pos1 :<| pos2 :<| _) =
+  concatForEach (zip (toList $ ephePositions pos1) (toList $ ephePositions pos2)) $ \(p1, p2) ->
+    case mkStation (epheDate pos1, p1) (epheDate pos2, p2) of
+     Nothing -> mempty
+     Just st -> 
+       -- the MeanNode /appears/ direct/retrograde sometimes,
+       -- but that's not astrologically significant.
+       if ephePlanet p1 `elem` [MeanNode, TrueNode] then
+         mempty
+       else
+         Aggregate $ M.fromList [(ephePlanet p1, singleton (DirectionChange st))]
+
+getRetrogrades _ = mempty
+
+
 isStationary :: ViewL PlanetStation -> Bool
 isStationary EmptyL = False
 isStationary (PlanetStation{stationType} :< _) =
@@ -75,12 +69,14 @@ mkStation (d1, pos1) (d2, pos2)
     Just $ PlanetStation {
       stationStarts = d1,
       stationEnds = d2,
+      stationPlanet = ephePlanet pos1,
       stationType = if epheSpeed pos1 > epheSpeed pos2 then Retrograde else Direct
      }
   | isRelativelyStationary pos1 =
     Just $ PlanetStation {
       stationStarts  = d1,
       stationEnds = d2,
+      stationPlanet = ephePlanet pos1,
       stationType = if epheSpeed pos1 > epheSpeed pos2 then StationaryRetrograde else StationaryDirect
       }
   | otherwise =

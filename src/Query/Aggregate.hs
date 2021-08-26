@@ -23,6 +23,13 @@ data MergeStrategy a
   | KeepBoth
   deriving (Eq, Show)
 
+instance Functor MergeStrategy where
+  fmap alpha (ReplaceBoth x y) = ReplaceBoth (alpha x) (alpha y)
+  fmap alpha (ReplaceL x)      = ReplaceL (alpha x)
+  fmap alpha (ReplaceR y)      = ReplaceR (alpha y)
+  fmap alpha (Merge    z)      = Merge    (alpha z)
+  fmap _     KeepBoth          = KeepBoth
+
 newtype MergeSeq a =
   MergeSeq {getMerged :: S.Seq a}
   deriving stock (Show)
@@ -32,8 +39,8 @@ singleton :: a -> MergeSeq a
 singleton = MergeSeq . S.singleton
 
 instance Merge a => Semigroup (MergeSeq a) where
-  (MergeSeq s1) <> (MergeSeq s2) = 
-    MergeSeq $ doMerge s1Last s2First 
+  (MergeSeq s1) <> (MergeSeq s2) =
+    MergeSeq $ doMerge s1Last s2First
     where
       s1Last  = S.viewr s1
       s2First = S.viewl s2

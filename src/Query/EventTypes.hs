@@ -16,6 +16,22 @@ data Event
   | LunarPhaseChange LunarPhase
   | EclipseMaximum   Eclipse
   
+instance Merge Event where
+  merge (DirectionChange a) (DirectionChange b) = 
+    DirectionChange <$> (a `merge` b)
+  merge (ZodiacIngress a) (ZodiacIngress b) =
+    ZodiacIngress <$> (a `merge` b)
+  merge (HouseIngress a) (HouseIngress b) =
+    HouseIngress <$> (a `merge` b)
+  merge (PlanetaryTransit a) (PlanetaryTransit b) =
+    PlanetaryTransit <$> (a `merge` b)
+  merge (HouseTransit a) (HouseTransit b) =
+    HouseTransit <$> (a `merge` b)
+  merge (LunarPhaseChange a) (LunarPhaseChange b) =
+    LunarPhaseChange <$> (a `merge` b)
+  merge (EclipseMaximum a) (EclipseMaximum b) =
+    EclipseMaximum <$> (a `merge` b)
+  merge _ _ = KeepBoth 
 -------------------------------------------------------------------------------
 data PlanetStation = PlanetStation
   { stationStarts :: !JulianDayTT
@@ -212,3 +228,5 @@ data Eclipse
   | LunarEclipse !LunarEclipseType !JulianDayUT1
   deriving (Eq, Show)
  
+instance Merge Eclipse where
+  merge _ _= KeepBoth 
