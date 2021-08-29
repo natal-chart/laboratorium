@@ -12,7 +12,7 @@ import SwissEphemeris.Precalculated
 import Data.Foldable (toList)
 import Query.Common
     ( isRelativelyStationary, Station(..), concatForEach )
-import Query.Aggregate ( Aggregate(Aggregate), Merge (merge), MergeStrategy(..), Grouped, singleton, Temporal(..) )
+import Query.Aggregate ( Aggregate(Aggregate), Grouped, singleton )
 import Streaming ( Of, Stream )
 import qualified Streaming.Prelude as St
 import Query.Streaming ( ephemerisWindows )

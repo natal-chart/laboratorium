@@ -30,10 +30,6 @@ library
     Query.Retrograde
     Query.Crossing
     Query.Transit
-    Query.Transit.Types
-    Query.Transit.Interplanetary
-    Query.Transit.Lunar
-    Query.Transit.Exact
     Query.Common
     Query.Aggregate
     Query.Streaming

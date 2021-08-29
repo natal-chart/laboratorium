@@ -24,6 +24,7 @@ import Query.Common (concatForEach)
 import Query.LunarPhase
 import Query.Eclipse
 import Util (show')
+import Query.EventTypes (PlanetStation(..))
 
 data EphemerisEvent
   = EphemerisRetrograde     (Planet, PlanetStation)
