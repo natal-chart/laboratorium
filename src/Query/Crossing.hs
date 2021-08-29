@@ -13,37 +13,8 @@ import qualified Data.Map as M
 import Data.Foldable (Foldable(toList))
 import Data.Maybe (mapMaybe)
 import Query.Aggregate
-import Streaming (Stream, Of)
-import qualified Streaming.Prelude as St
-import Control.Category ((>>>))
-import Query.Streaming
 import Query.Common (concatForEach)
 import Query.EventTypes
-
-type CrossingMap a = Grouped Planet (Crossing a)
-
-crossings :: (Monad m, HasEclipticLongitude a) => [a] -> Stream (Of (Ephemeris Double)) m b -> m (Of (CrossingMap a) b)
-crossings degs =
-  ephemerisWindows 2 >>> St.foldMap (mapCrossings degs)
-
-mapCrossings :: HasEclipticLongitude a => [a] -> Seq (Ephemeris Double) -> CrossingMap a
-mapCrossings degreesToCross (pos1 :<| pos2 :<| _) =
-  concatForEach (zip (toList $ ephePositions pos1) (toList $ ephePositions pos2)) $ \(p1, p2) ->
-    -- TODO: allow selecting which planets to consider -- we _do_ want to know
-    -- Moon crossings over house cusps.
-    -- the Moon crosses most of the ecliptic every month, so it's not
-    -- really significant. The nodes do have a slower behavior, so maybe
-    -- I'll reinstate them.
-    if ephePlanet p1 `elem` [Moon, TrueNode, MeanNode] then
-      mempty
-    else
-      Aggregate
-        $ M.fromList
-        $ map (\c -> (ephePlanet p1, singleton c))
-        $ mapMaybe (mkCrossing (epheDate pos1, p1) (epheDate pos2, p2))
-        degreesToCross
-
-mapCrossings _ _ = mempty
 
 getCrossings' :: HasEclipticLongitude a => (Crossing a -> Event ) -> [Planet] -> [a] -> Seq (Ephemeris Double) -> Grouped Planet Event
 getCrossings' mkEvent selectedPlanets degreesToCross (pos1 :<| pos2 :<| _) =
