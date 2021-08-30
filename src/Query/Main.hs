@@ -25,7 +25,7 @@ import Data.Foldable (toList)
 import Data.Either (rights)
 import Query.LunarPhase
 import Query.Eclipse
-import Query.Almanac
+import Query.EventTypes
 
 data QueryType
   = Retrogrades
@@ -205,15 +205,15 @@ doCrossings ephe = do
     putStrLn ""
     print planet
     putStrLn "-----------"
-    forM_ (getMerged crossings') $ \Crossing{crossingEnters, crossingExits, crossingSubject} -> do
-      startsUT <- fromJulianDay crossingEnters :: (IO UTCTime)
-      endsUT <- fromJulianDay  crossingExits :: (IO UTCTime)
+    forM_ (getMerged crossings') $ \Crossing{crossingStarts, crossingEnds, crossingCrosses} -> do
+      startsUT <- fromJulianDay crossingStarts :: (IO UTCTime)
+      endsUT <- fromJulianDay  crossingEndsc :: (IO UTCTime)
       let interval =
             if startsUT == endsUT then
               "starts: " <>  show startsUT
             else
               show startsUT <> " - " <> show endsUT
-      putStrLn $ "In " <> show (signName crossingSubject) <> " ( " <> interval <> ")"
+      putStrLn $ "In " <> show (signName crossingCrosses) <> " ( " <> interval <> ")"
 
 doTransits :: EphemerisStream -> IO ()
 doTransits ephe = do

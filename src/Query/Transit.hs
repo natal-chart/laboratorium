@@ -2,7 +2,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE OverloadedLists #-}
 
-module Query.Transit.Interplanetary where
+module Query.Transit where
 
 import Data.Sequence (Seq ((:<|)), fromList)
 import qualified Data.Map as M

@@ -22,10 +22,11 @@ library
     CLI
     Util
     OptionParser
+    Query.Example
+    Query.Event
     Query.EventTypes
     Query.Eclipse
     Query.Main
-    Query.Almanac
     Query.LunarPhase
     Query.Retrograde
     Query.Crossing

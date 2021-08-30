@@ -8,15 +8,11 @@ import SwissEphemeris
       SolarEclipseType,
       JulianDay(getJulianDay),
       JulianDayUT1 )
+import Query.EventTypes
 
-data Eclipse 
-  = SolarEclipse !SolarEclipseType !JulianDayUT1 
-  | LunarEclipse !LunarEclipseType !JulianDayUT1
-  deriving (Eq, Show)
-  
 getEclipseDate :: Eclipse -> JulianDayUT1
-getEclipseDate (SolarEclipse _ d) =d
-getEclipseDate (LunarEclipse _ d) =d
+getEclipseDate (SolarEclipse _ d) = d
+getEclipseDate (LunarEclipse _ d) = d
 
 allEclipses :: JulianDayUT1 -> JulianDayUT1 -> IO [Eclipse]
 allEclipses start end =

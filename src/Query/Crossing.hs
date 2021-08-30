@@ -61,3 +61,9 @@ crossesRetrograde p1 p2 toCross =
     p1 >= toCross && p2 < (toCross + 360)
   else
     p1 >= toCross && p2 < toCross
+
+westernZodiacSigns :: [Zodiac]
+westernZodiacSigns =
+  zipWith Zodiac [Aries .. Pisces] zodiacs
+  where
+    zodiacs = take 12 $ iterate (+ 30) 0
