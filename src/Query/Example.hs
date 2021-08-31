@@ -74,6 +74,7 @@ natalAlmanac geo birth start end = do
         & ephemerisWindows 2
         & L.purely S.fold (mkAlmanac natalEphe houses)
 
+      -- TODO: also want lunar transits for house cusps
       lun <- selectLunarTransits startTT endTT natalEphe
 
       pure $ cross <> trns <> cuspTrns <> collapse lun

@@ -14,7 +14,7 @@ mapLunarPhases dayEphe =
   let sunPos  = dayEphe `forPlanet` Sun
       moonPos = dayEphe `forPlanet` Moon
       phase   = mkLunarPhase <$> sunPos <*> moonPos
-      build (n,pos) = LunarPhase n (epheDate dayEphe) (epheDate dayEphe) pos
+      build (n,pos) = LunarPhase n (pred $ epheDate dayEphe) (epheDate dayEphe) pos
   in maybe mempty (singleton . LunarPhaseChange . build) phase
 
 -- | Just to make it play nice with the other folds that look at two days
