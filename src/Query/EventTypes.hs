@@ -15,7 +15,7 @@ data Event
   | HouseTransit     (Transit House)
   | LunarPhaseChange LunarPhase
   | EclipseMaximum   Eclipse
-  
+
 instance Merge Event where
   merge (DirectionChange a) (DirectionChange b) = 
     DirectionChange <$> (a `merge` b)
@@ -170,7 +170,7 @@ data Transit over = Transit {
 , transitEnds :: !JulianDayTT
 , transitProgress :: !(S.Seq (JulianDayTT, Double))
 , transitPhases :: !(MergeSeq TransitPhase)
-, transitIsExact :: !(Maybe JulianDayTT)
+, transitIsExact :: ![JulianDayTT]
 , transitCrosses :: !EclipticLongitude
 } deriving (Show)
 

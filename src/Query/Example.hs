@@ -20,6 +20,16 @@ import Query.Eclipse
 import qualified Data.Sequence as Sq
 import qualified Data.Foldable as F
 import SwissEphemeris.Precalculated (readEphemerisEasy)
+import qualified Data.Map as M
+import Data.Functor ((<&>))
+import Data.Foldable (foldMap')
+import Data.Bifunctor (first)
+import Query.Event
+import Data.List (nub)
+
+-------------------------------------------------------------------------------
+-- FUNCTIONS THAT AGGREGATE EVENTS
+-------------------------------------------------------------------------------
 
 worldAlmanac :: UTCTime -> UTCTime -> IO (Sq.Seq Event)
 worldAlmanac start end = do
@@ -88,3 +98,26 @@ natalAlmanac geo birth start end = do
     sansMoon = filter (Moon /=) defaultPlanets
 
  
+-------------------------------------------------------------------------------
+-- INDEXING UTILITIES 
+-------------------------------------------------------------------------------
+
+type EventExactDates = (Event, [UTCTime])
+
+eventDates :: Event -> IO [(UTCTime, Sq.Seq EventExactDates)]
+eventDates evt = do
+  exacts <- eventExactAt evt
+  starts <- eventStartsAt evt
+  ends <- eventEndsAt evt
+  let uniqTimes = nub $ [starts] <> exacts <> [ends]
+  pure $ zip uniqTimes (repeat $ Sq.singleton (evt,exacts))
+
+-- | Given a timezone and a sequence of events, index them by day (in the given timezone,)
+-- with entries for the event's start, moments of exactitude, and end.
+indexByDay :: TimeZone -> Sq.Seq Event -> IO (M.Map Day (Sq.Seq EventExactDates))
+indexByDay tz events =
+  foldMap' eventDates events
+    <&> map (first $ getDay . utcToZonedTime tz)
+    <&> M.fromListWith (<>)
+  where
+    getDay (ZonedTime (LocalTime d _tod) _tz) = d

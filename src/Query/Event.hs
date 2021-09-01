@@ -2,10 +2,6 @@
 
 module Query.Event where
 
--- fns:
--- tuple of (indexAt, evt) -- fromMaybe starts 
--- calendar: map index >>> foldMap' calendar (unionWith <>)
-
 import Query.EventTypes
 import Data.Time
 import SwissEphemeris
@@ -13,11 +9,6 @@ import Data.Function
 import EclipticLongitude
 import Data.Foldable
 import Query.Eclipse (getEclipseDate)
-import Data.List (nub)
-import qualified Data.Sequence as S
-import qualified Data.Map as M
-import Data.Functor
-import Data.Bifunctor (first)
 
 -- | Get all moments of exactitude in the span of an @Event@; in reality, 
 -- only Transits are liable to have more than one moment of exactitude (if they
@@ -51,11 +42,16 @@ crossingExactAt Crossing{crossingPlanet, crossingCrosses, crossingStarts, crossi
   >>= crossingAsList
 
 transitExactAt :: Transit a -> IO [UTCTime]
-transitExactAt Transit{transitPhases, transitCrosses, transiting} =
-  transitPhases
-  & toList
-  & filter ((`elem` [TriggeredDirect, TriggeredRetrograde]) . phaseName)
-  & foldMap' triggeredAt
+transitExactAt Transit{transitPhases, transitCrosses, transiting, transitIsExact} =
+  if not . null $ transitIsExact then
+    -- the Moon (and other non-retrograde bodies, like the Sun)
+    -- may already have had its exactitude moments calculated.
+    mapM fromJulianDay transitIsExact
+  else
+    transitPhases
+      & toList
+      & filter ((`elem` [TriggeredDirect, TriggeredRetrograde]) . phaseName)
+      & foldMap' triggeredAt
   where
     triggeredAt TransitPhase{phaseStarts, phaseEnds} = do
       crossingBetween transiting (getEclipticLongitude transitCrosses) phaseStarts phaseEnds
@@ -87,21 +83,3 @@ eventEndsAt (PlanetaryTransit evt) = fromJulianDay $ transitEnds evt
 eventEndsAt (HouseTransit evt) = fromJulianDay $ transitEnds evt
 eventEndsAt (ZodiacIngress evt) = fromJulianDay $ crossingEnds evt
 eventEndsAt (HouseIngress evt) = fromJulianDay $ crossingEnds evt
-
-eventDates :: Event -> IO [(UTCTime, S.Seq Event)]
-eventDates evt = do
-  exacts <- eventExactAt evt
-  starts <- eventStartsAt evt
-  ends <- eventEndsAt evt
-  let uniqTimes = nub $ [starts] <> exacts <> [ends]
-  pure $ zip uniqTimes (repeat $ S.singleton evt)
-
--- | Given a timezone and a sequence of events, index them by day (in the given timezone,)
--- with entries for the event's start, moments of exactitude, and end.
-indexByDay :: TimeZone -> S.Seq Event -> IO (M.Map Day (S.Seq Event))
-indexByDay tz events =
-  foldMap' eventDates events
-    <&> map (first $ getDay . utcToZonedTime tz)
-    <&> M.fromListWith (<>)
-  where
-    getDay (ZonedTime (LocalTime d _tod) _tz) = d

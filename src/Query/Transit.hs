@@ -169,7 +169,7 @@ mkTransit ins transiting@((t1, p11), (t2, p12)) (_t22, p22)
         rel = relation before' after' ref
         phase = transitPhase station rel
         phaseInfo = singleton $ TransitPhase phase t1 t2
-    pure $ Transit aspectName (ephePlanet p11) (ins p22) phase angle' orb' t1 t2 [(t2,orb')] phaseInfo Nothing meets
+    pure $ Transit aspectName (ephePlanet p11) (ins p22) phase angle' orb' t1 t2 [(t2,orb')] phaseInfo mempty meets
 
 
 -------------------------------------------------------------------------------
@@ -303,7 +303,7 @@ lunarAspects ins start end pos =
         transitAngle = angl,
         transitOrb = 0,
         transitStarts = estimateStart exactCrossingTime,
-        transitIsExact = Just exactCrossingTime,
+        transitIsExact = [exactCrossingTime],
         transitEnds = estimateEnd exactCrossingTime,
         transitProgress = mempty,
         transitPhases = mempty,
