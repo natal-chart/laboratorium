@@ -10,20 +10,23 @@ import Graphics.Rendering.Chart.Easy hiding (days)
 import SwissEphemeris
   ( FromJulianDay (fromJulianDay), dayFromJulianDay, Planet
   )
-import Query.Transit
 import Query.Aggregate
 import qualified Data.Map as M
 import Control.Monad (when)
 import Data.Time.Format.ISO8601
+import Query.EventTypes
+import Control.Category ((>>>))
+import Data.Maybe (catMaybes)
 
+type TransitMap = Grouped (Planet, Planet) Event
 
-transitProgressChart :: TransitMap Planet -> Bool -> IO ()
+transitProgressChart :: TransitMap -> Bool -> IO ()
 transitProgressChart (Aggregate allTransits) verbose = do
   when verbose $ do
     forM_ (M.toAscList allTransits) $ \(bodies, transits) -> do
       print bodies
       putStrLn "-------------"
-      forM_ (getMerged transits) $ \Transit{aspect,transitStarts, transitEnds, transitProgress, transitPhases} -> do
+      forM_ (eventsToTransits transits) $ \Transit{aspect,transitStarts, transitEnds, transitProgress, transitPhases} -> do
         startsUT <- fromJulianDay transitStarts :: IO UTCTime
         endsUT   <- fromJulianDay transitEnds   :: IO UTCTime
         print (startsUT, endsUT, aspect)
@@ -45,7 +48,7 @@ transitProgressChart (Aggregate allTransits) verbose = do
     layout_title .= "Transit Progress"
     layout_y_axis . laxis_reverse .= True
     forM_ (M.toAscList allTransits) $ \((transiting, transited), transits) ->
-      forM_ (getMerged transits) $ \Transit{transitProgress, aspect}-> do
+      forM_ (eventsToTransits transits) $ \Transit{transitProgress, aspect}-> do
         plot (fillBetween (show transiting <> " " <> show aspect <> " " <> show transited)
           [(dayFromJulianDay jd, (o, 5.0)) | (jd, o) <- toList transitProgress])
 
@@ -57,3 +60,12 @@ fillBetween title vs = liftEC $ do
   color <- takeColor
   plot_fillbetween_style .= solidFillStyle (0.4 `dissolve` color)
   plot_fillbetween_values .= vs
+
+eventsToTransits :: MergeSeq Event -> [Transit Planet]
+eventsToTransits =
+  getMerged >>> fmap whenTransit >>> toList >>> catMaybes
+  where 
+    whenTransit evt =
+      case evt of 
+        PlanetaryTransit t -> Just t
+        _ -> Nothing
