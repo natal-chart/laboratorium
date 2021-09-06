@@ -171,11 +171,12 @@ doLunarTransits Options{optRangeStart, optRangeEnd} = do
               exact <- fromJulianDay e :: IO UTCTime
               print (aspect, exact, startsDay, endsDay)
 
+{-
 doPlanetAverages :: EphemerisStream -> IO ()
 doPlanetAverages  ephe = do
   avgs <- planetAverageSpeeds defaultPlanets ephe
   print (sortOn (Down . snd) $ M.toList $ getAverages avgs)
-
+-}
 
 doRetrogrades :: EphemerisStream -> IO ()
 doRetrogrades ephe = do
@@ -207,7 +208,7 @@ doCrossings ephe = do
     putStrLn "-----------"
     forM_ (getMerged crossings') $ \Crossing{crossingStarts, crossingEnds, crossingCrosses} -> do
       startsUT <- fromJulianDay crossingStarts :: (IO UTCTime)
-      endsUT <- fromJulianDay  crossingEndsc :: (IO UTCTime)
+      endsUT <- fromJulianDay  crossingEnds :: (IO UTCTime)
       let interval =
             if startsUT == endsUT then
               "starts: " <>  show startsUT
