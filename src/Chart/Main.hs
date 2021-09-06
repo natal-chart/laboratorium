@@ -9,7 +9,7 @@ import Data.Time
 import qualified Streaming as S
 import Util (julianDays)
 import SwissEphemeris.Precalculated
-import Query.Streaming (streamEpheF)
+import Query.Streaming (streamEpheF, ephemerisWindows)
 import Query.PlanetEphe (planetEphemeris)
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Foldable (traverse_)
@@ -20,6 +20,7 @@ import Data.Function
 import Streaming (Stream, Of)
 import Query.Transit
 import Chart.TransitProgress
+import qualified Streaming.Prelude as St
 
 deriving instance Read Planet
 
@@ -55,15 +56,14 @@ doNatalTransitProgress Options{optBirthday, optTransitedPlanets, optTransitingPl
     Left err -> fail err
     Right transited -> do
       let chosenPairs = filteredPairs allPairs optTransitingPlanets optTransitedPlanets
-      chosenTransits S.:> _ <- ephe & selectNatalTransits transited chosenPairs 
-      transitProgressChart chosenTransits optDebug
+      pure ()
 
 doTransitProgress :: Options -> Stream (Of (Ephemeris Double)) IO () -> IO ()
 doTransitProgress Options{optTransitedPlanets, optTransitingPlanets, optDebug} ephe = do
   let chosenPairs = filteredPairs uniquePairs optTransitingPlanets optTransitedPlanets
-  chosenTransits S.:> _ <- ephe & selectTransits chosenPairs 
+  chosenTransits S.:> _ <- 
+    ephe & ephemerisWindows 2 & St.foldMap (getTransits chosenPairs)
   transitProgressChart chosenTransits optDebug
-  
 
 doOverview :: Options -> Stream (Of (Ephemeris Double)) IO () -> IO ()
 doOverview Options{optBirthday, optRangeStart, optRangeEnd, optTransitedPlanets, optTransitingPlanets} ephe = do
@@ -82,7 +82,6 @@ doOverview Options{optBirthday, optRangeStart, optRangeEnd, optTransitedPlanets,
       let transited = fromMaybe [] $ traverse (forPlanet trEphe) natalPlanets
       traverse_ (transitChart allDays transitingEphe) transited
 
- 
 ---
 --- OPT UTILS
 --
