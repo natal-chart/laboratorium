@@ -106,7 +106,6 @@ natalAlmanac geo birth start end = do
       houses & filter (houseName >>> (`elem` [I, X]))
     sansMoon = filter (Moon /=) defaultPlanets
 
- 
 -------------------------------------------------------------------------------
 -- INDEXING UTILITIES 
 -------------------------------------------------------------------------------
@@ -117,10 +116,12 @@ eventDates :: TimeZone -> Event -> IO [(ZonedTime, Sq.Seq EventExactDates)]
 eventDates tz evt = do
   exactsUTC <- eventExactAt evt
   startsUTC <- eventStartsAt evt
-  let uniqTimes = nubBy sameDay $ map (utcToZonedTime tz) $ [startsUTC] <> exactsUTC
-  pure $ zip uniqTimes (repeat $ Sq.singleton (evt,exactsUTC))
-  where 
-    sameDay (ZonedTime (LocalTime a _) _) (ZonedTime (LocalTime b _) _) = a == b
+  let uniqTimes =
+        if null exactsUTC then
+          [startsUTC]
+        else
+          exactsUTC
+  pure $ zip (map (utcToZonedTime tz) uniqTimes) (repeat $ Sq.singleton (evt,exactsUTC))
 
 -- | Given a timezone and a sequence of events, index them by day (in the given timezone,)
 -- with entries for the event's start, moments of exactitude, and end.
@@ -159,7 +160,7 @@ findCrossings start end = do
     ephe & S.foldMap (getZodiacCrossings sansMoon westernZodiacSigns)
   pure $ collapse crossings
   where
-    sansMoon = tail defaultPlanets 
+    sansMoon = tail defaultPlanets
 
 findRetrogrades :: UTCTime -> UTCTime -> IO (Seq Event)
 findRetrogrades start end = do
