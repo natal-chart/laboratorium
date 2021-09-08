@@ -43,7 +43,7 @@ data PlanetStation = PlanetStation
 
 instance Merge PlanetStation where
   x `merge` y =
-    if stationType y == stationType x then
+    if stationType y == stationType x && stationPlanet x == stationPlanet y then
       Merge merged
     else
       KeepBoth
