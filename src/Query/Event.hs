@@ -23,12 +23,10 @@ eventExactAt (DirectionChange PlanetStation{stationStarts, stationEnds, stationP
   case changesAt of
     Left _e -> pure []
     Right (dirChangesAt, _) -> mapM fromJulianDay [dirChangesAt]
-eventExactAt (LunarPhaseChange LunarPhase{lunarPhaseStarts, lunarPhaseEnds, lunarLongitude}) = do
-  case lunarLongitude of
+eventExactAt (LunarPhaseChange LunarPhase{lunarPhaseExact}) = do
+  case lunarPhaseExact of
     Nothing -> pure []
-    Just (EclipticLongitude l) ->
-      crossingBetween Moon l lunarPhaseStarts lunarPhaseEnds
-      >>= crossingAsList
+    Just tt -> crossingAsList $ Right tt
 eventExactAt (EclipseMaximum ecl) =
   mapM fromJulianDay [getEclipseDate ecl]
 eventExactAt (PlanetaryTransit t) = transitExactAt t

@@ -207,7 +207,7 @@ data LunarPhase = LunarPhase
   { lunarPhaseName :: !LunarPhaseName
   , lunarPhaseStarts :: !JulianDayTT
   , lunarPhaseEnds :: !JulianDayTT
-  , lunarLongitude :: !(Maybe EclipticLongitude)
+  , lunarPhaseExact :: !(Maybe JulianDayTT)
   } deriving (Eq, Show)
 
 instance Merge LunarPhase where
