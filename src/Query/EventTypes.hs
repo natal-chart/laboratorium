@@ -1,6 +1,6 @@
 module Query.EventTypes where
 
-import SwissEphemeris
+import SwissEphemeris 
 import Query.Common
 import Query.Aggregate
 import SwissEphemeris.Precalculated
@@ -192,22 +192,10 @@ instance Eq a => Merge (Transit a) where
 
 -------------------------------------------------------------------------------
 
-data LunarPhaseName
-  = NewMoon
-  | WaxingCrescent
-  | FirstQuarter
-  | WaxingGibbous
-  | FullMoon
-  | WaningGibbous
-  | LastQuarter
-  | WaningCrescent
-  deriving (Eq, Show, Ord)
-
 data LunarPhase = LunarPhase
   { lunarPhaseName :: !LunarPhaseName
   , lunarPhaseStarts :: !JulianDayTT
   , lunarPhaseEnds :: !JulianDayTT
-  , lunarLongitude :: !(Maybe EclipticLongitude)
   } deriving (Eq, Show)
 
 instance Merge LunarPhase where

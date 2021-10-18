@@ -6,7 +6,6 @@ import Query.EventTypes
 import Data.Time
 import SwissEphemeris
 import Data.Function
-import EclipticLongitude
 import Data.Foldable
 import Query.Eclipse (getEclipseDate)
 
@@ -23,12 +22,9 @@ eventExactAt (DirectionChange PlanetStation{stationStarts, stationEnds, stationP
   case changesAt of
     Left _e -> pure []
     Right (dirChangesAt, _) -> mapM fromJulianDay [dirChangesAt]
-eventExactAt (LunarPhaseChange LunarPhase{lunarPhaseStarts, lunarPhaseEnds, lunarLongitude}) = do
-  case lunarLongitude of
-    Nothing -> pure []
-    Just (EclipticLongitude l) ->
-      crossingBetween Moon l lunarPhaseStarts lunarPhaseEnds
-      >>= crossingAsList
+eventExactAt (LunarPhaseChange LunarPhase{lunarPhaseName, lunarPhaseStarts, lunarPhaseEnds}) =
+  moonPhaseExactAt lunarPhaseName lunarPhaseStarts lunarPhaseEnds
+  >>= crossingAsList
 eventExactAt (EclipseMaximum ecl) =
   mapM fromJulianDay [getEclipseDate ecl]
 eventExactAt (PlanetaryTransit t) = transitExactAt t

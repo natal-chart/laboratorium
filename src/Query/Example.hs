@@ -25,7 +25,6 @@ import Data.Functor ((<&>))
 import Data.Foldable (foldMap')
 import Data.Bifunctor (first)
 import Query.Event
-import Data.List (nub, nubBy)
 import Data.Sequence (Seq)
 
 -------------------------------------------------------------------------------
