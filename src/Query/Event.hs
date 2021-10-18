@@ -23,8 +23,13 @@ eventExactAt (DirectionChange PlanetStation{stationStarts, stationEnds, stationP
     Left _e -> pure []
     Right (dirChangesAt, _) -> mapM fromJulianDay [dirChangesAt]
 eventExactAt (LunarPhaseChange LunarPhase{lunarPhaseName, lunarPhaseStarts, lunarPhaseEnds}) =
-  moonPhaseExactAt lunarPhaseName lunarPhaseStarts lunarPhaseEnds
-  >>= crossingAsList
+  if lunarPhaseName `elem` [FullMoon, NewMoon] then
+    moonPhaseExactAt lunarPhaseName lunarPhaseStarts lunarPhaseEnds
+    >>= crossingAsList
+  else
+    -- we don't currently interpolate other moon phases, as the brackets
+    -- are too large and sometimes we can't converge in time.
+    pure mempty
 eventExactAt (EclipseMaximum ecl) =
   mapM fromJulianDay [getEclipseDate ecl]
 eventExactAt (PlanetaryTransit t) = transitExactAt t
