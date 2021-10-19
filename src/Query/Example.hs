@@ -53,7 +53,7 @@ worldAlmanac start end = do
       (,,,) <$> L.foldMap getRetrogrades collapse
             <*> L.foldMap (getZodiacCrossings (tail defaultPlanets) westernZodiacSigns) collapse
             <*> L.foldMap (getTransits slowPairs) collapse
-            <*> L.foldMap mapLunarPhases' getMerged
+            <*> L.foldMap mapLunarPhases getMerged
 
 chosenPairs :: [(Planet, Planet)]
 chosenPairs =
@@ -142,7 +142,7 @@ findLunarPhases :: UTCTime -> UTCTime -> IO (Seq Event)
 findLunarPhases start end = do
   ephe <- ephemeris start end
   phases :> _ <-
-    ephe & S.foldMap mapLunarPhases'
+    ephe & S.foldMap mapLunarPhases
   pure (getMerged phases)
 
 findMundaneTransits :: UTCTime -> UTCTime -> IO (Seq Event)

@@ -8,33 +8,41 @@ import Query.Aggregate
 import EclipticLongitude
 import Data.Sequence (Seq ((:<|)))
 import Query.EventTypes
-
-mapLunarPhases :: Ephemeris Double -> MergeSeq Event 
-mapLunarPhases dayEphe =
-  let sunPos  = dayEphe `forPlanet` Sun
-      moonPos = dayEphe `forPlanet` Moon
-      phase   = mkLunarPhase <$> sunPos <*> moonPos
-      build n = LunarPhase n (pred $ epheDate dayEphe) (epheDate dayEphe)
-  in maybe mempty (singleton . LunarPhaseChange . build) phase
+import Control.Applicative (liftA2)
 
 -- | Just to make it play nice with the other folds that look at two days
 -- at once.
-mapLunarPhases' :: Seq (Ephemeris Double) -> MergeSeq Event
-mapLunarPhases' (_day1 :<| day2 :<| _) =
-  mapLunarPhases day2 
-mapLunarPhases'  _ = mempty
+mapLunarPhases :: Seq (Ephemeris Double) -> MergeSeq Event
+mapLunarPhases (day1 :<| day2 :<| _) =
+  let sun1  = day1 `forPlanet` Sun
+      sun2  = day2 `forPlanet` Sun
+      moon1 = day1 `forPlanet` Moon
+      moon2 = day2 `forPlanet` Moon
+      sunPos = liftA2 (,) sun1 sun2
+      moonPos = liftA2 (,) moon1 moon2
+      phaseInfo = mkLunarPhase <$> sunPos <*> moonPos
+      build (p, _changed) = LunarPhase p (epheDate day1) (epheDate day2)
+  in maybe mempty (singleton . LunarPhaseChange . build) phaseInfo
+mapLunarPhases  _ = mempty
 
 -- | Get the phase the Moon is currently in
-mkLunarPhase :: EphemerisPosition Double -> EphemerisPosition Double -> LunarPhaseName
-mkLunarPhase sun moon =
-  if | diffDeg <  1+speed                            -> NewMoon
-     | diffDeg >= 1+speed   && diffDeg < 90          -> WaxingCrescent
-     | diffDeg >= 90        && diffDeg < 90 + speed  -> FirstQuarter
-     | diffDeg >= 90+speed  && diffDeg < 180         -> WaxingGibbous
-     | diffDeg >= 180       && diffDeg < 180 + speed -> FullMoon
-     | diffDeg >= 180+speed && diffDeg < 270         -> WaningGibbous
-     | diffDeg >= 270       && diffDeg < 270 + speed -> LastQuarter
-     | otherwise                                     -> WaningCrescent
+mkLunarPhase :: (EphemerisPosition Double, EphemerisPosition Double) -> (EphemerisPosition Double, EphemerisPosition Double) -> (LunarPhaseName, Bool)
+mkLunarPhase (sun1, sun2) (moon1, moon2) = 
+  (phaseName', phaseChanged)
   where
-  diffDeg = getEclipticLongitude $ toEclipticLongitude moon - toEclipticLongitude sun
-  speed   = epheSpeed moon
+    phaseName' =
+      if | phase == 0   -> NewMoon
+         | phase == 45  -> WaxingCrescent
+         | phase == 90  -> FirstQuarter
+         | phase == 135 -> WaxingGibbous 
+         | phase == 180 -> FullMoon
+         | phase == 225 -> WaningGibbous 
+         | phase == 270 -> LastQuarter 
+         | otherwise    -> WaningCrescent 
+    phaseMod = 45
+    oldPhase = floor $ diff1 / phaseMod :: Integer
+    newPhase = floor $ diff2 / phaseMod :: Integer
+    diff1 = getEclipticLongitude $ toEclipticLongitude moon1 - toEclipticLongitude sun1
+    diff2 = getEclipticLongitude $ toEclipticLongitude moon2 - toEclipticLongitude sun2
+    phaseChanged = newPhase /= oldPhase
+    phase = fromIntegral newPhase * phaseMod
