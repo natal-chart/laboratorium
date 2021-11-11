@@ -3,29 +3,99 @@
 Half-baked experiments for our other apps. All commands require that ephemeris files
 are provided in the `ephe` directory.
 
-## Transit Charts
+## Charts
 
-Generate transit charts for a given event, in reference to a planet (or planets).
-
-```sh
-Usage: laboratorium (-d|--date ARG) (-s|--start ARG) (-e|--end ARG)
-                    (-p|--planets ARG)
-  Plot transit charts for the given natal planets, in the given time range, for
-  a specific birth/event date
-```
-
-Example:
-
+Generate charts for a given interval, in reference to a planet (or planets).
 
 ```sh
-cabal new-run laboratorium -- charts --date "1989-01-07T05:30:00Z" --start "2021-01-01" --end "2022-01-31" --planets "Jupiter" --ephe-path "./ephe"
+[nix-shell:~/code/natalch.art/laboratorium]$ time cabal new-run laboratorium  -- charts --help
+Up to date
+Usage: laboratorium charts (-d|--date ARG) (-s|--start ARG) (-e|--end ARG)
+                           --transited ARG --transiting ARG (-c|--chart ARG) 
+                           [--debug]
+  Work with transit charts
+
+Available options:
+  --transited ARG          space-separated list of transited planets
+  --transiting ARG         space-separated list of transiting planets
+  --debug                  print debug information
+  -h,--help                Show this help text
+
 ```
 
-It will output charts in the `charts/` folder, can open them with any SVG viewer.
+Some example charts:
 
-Here's an example chart:
+
+![transit chart](https://user-images.githubusercontent.com/82133/127580799-a1b91f58-5f74-4587-bc9b-bef2baf2bb48.png)
+
+Here's another example "overview" chart, focused on all planet movements throughout a given period:
 
 ![image](https://user-images.githubusercontent.com/82133/122154039-2044d280-ce32-11eb-8edb-5d051b2f4a5b.png)
+
+## Queries
+
+"Almanacs" can be generated for intervals of time, to print events of interest; such as natal transits, moon phases, eclipses, zodiac ingresses. For example, here's
+some "mundane" events for the end of October 2021:
+
+```
+[nix-shell:~/code/natalch.art/laboratorium]$ time cabal new-run laboratorium -- query -q "WorldAlmanac" -s "2021-10-20" -e "2021-10-31" --ephe-path "./ephe"
+All events in EST : 
+----------------- 
+2021-10-20
+============
+FullMoon
+Starts at: 
+2021-10-20 00:00:00.000013411045 EST
+Ends at: 
+2021-10-24 00:00:00.000013411045 EST
+Exact at:
+    2021-10-20 09:56:41.524794101715 EST
+############################
+2021-10-22
+============
+(Sun,"enters",Scorpio,DirectMotion)
+Starts at: 
+2021-10-22 00:00:00.000013411045 EST
+Ends at: 
+2021-10-23 00:00:00.000013411045 EST
+Exact at:
+    2021-10-22 23:51:10.147928595542 EST
+############################
+2021-10-24
+============
+WaningGibbous
+Starts at: 
+2021-10-24 00:00:00.000013411045 EST
+Ends at: 
+2021-10-28 00:00:00.000013411045 EST
+Exact at:
+    2021-10-24 12:33:05.060982406139 EST
+############################
+2021-10-28
+============
+LastQuarter
+Starts at: 
+2021-10-28 00:00:00.000013411045 EST
+Ends at: 
+2021-10-31 00:00:00.000013411045 EST
+Exact at:
+    2021-10-28 15:05:10.918101668357 EST
+############################
+2021-10-30
+============
+(Mars,"enters",Scorpio,DirectMotion)
+Starts at: 
+2021-10-30 00:00:00.000013411045 EST
+Ends at: 
+2021-10-31 00:00:00.000013411045 EST
+Exact at:
+    2021-10-30 09:21:06.681253910064 EST
+############################
+
+real    0m0.127s
+user    0m0.087s
+sys     0m0.027s
+```
 
 ## Development
 
