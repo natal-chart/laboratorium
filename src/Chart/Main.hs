@@ -56,7 +56,9 @@ doNatalTransitProgress Options{optBirthday, optTransitedPlanets, optTransitingPl
     Left err -> fail err
     Right transited -> do
       let chosenPairs = filteredPairs allPairs optTransitingPlanets optTransitedPlanets
-      pure ()
+      chosenTransits S.:> _ <-
+          ephe & ephemerisWindows 2 & St.foldMap (getNatalTransits transited chosenPairs)
+      transitProgressChart chosenTransits optDebug
 
 doTransitProgress :: Options -> Stream (Of (Ephemeris Double)) IO () -> IO ()
 doTransitProgress Options{optTransitedPlanets, optTransitingPlanets, optDebug} ephe = do

@@ -28,6 +28,7 @@ import Query.EventTypes
 import Data.Foldable (foldMap')
 import Control.Category ((<<<))
 import Data.Either (rights)
+import Data.Tuple (swap)
 
 getTransits :: [(Planet, Planet)] -> Seq (Ephemeris Double) -> Grouped (Planet, Planet) Event
 getTransits chosenPairs (day1Ephe :<| day2Ephe :<| _) =
@@ -44,7 +45,7 @@ getTransits chosenPairs (day1Ephe :<| day2Ephe :<| _) =
 getTransits _ _ = mempty
 
 
-getNatalTransits :: Ephemeris Double -> [(Planet, Planet)] -> Seq (Ephemeris Double) -> Grouped (Planet, Planet) Event 
+getNatalTransits :: Ephemeris Double -> [(Planet, Planet)] -> Seq (Ephemeris Double) -> Grouped (Planet, Planet) Event
 getNatalTransits natalEphemeris chosenPairs (day1Ephe :<| day2Ephe :<| _) =
   concatForEach chosenPairs $ \pair@(planet1, planet2) ->
       let planet1Ephe1 = (epheDate day1Ephe,) <$> planetEphe planet1 day1Ephe
@@ -65,7 +66,7 @@ getCuspTransits cusps chosenPlanets (day1Ephe :<| day2Ephe :<| _) =
       let planet1Ephe1 = (epheDate day1Ephe,) <$> planetEphe planet1 day1Ephe
           planet1Ephe2 = (epheDate day2Ephe,) <$> planetEphe planet1 day2Ephe
 
-          planet2Ephe2 = Just (epheDate day2Ephe,cusp) 
+          planet2Ephe2 = Just (epheDate day2Ephe,cusp)
           planet1Ephes = liftA2 (,) planet1Ephe1 planet1Ephe2
           transit' = join $ mkTransit id <$> planet1Ephes <*> planet2Ephe2
       in case transit' of
@@ -125,17 +126,18 @@ defaultPlanets =
       , Pluto
       ]
 
--- All pairs, including a planet with itself -- useful for natal transits
+-- All pairs, including a planet with itself and slow planets transiting fast ones (vs the usual,
+-- fast ones over slow ones) -- useful for natal transits
 allPairs :: [(Planet, Planet)]
 allPairs =
-  uniquePairs <> selfPairs
+  uniquePairs <> map swap uniquePairs <> selfPairs
   where
     selfPairs = zip defaultPlanets defaultPlanets
 
 filteredPairs :: [(Planet, Planet)] -> [Planet] -> [Planet] -> [(Planet, Planet)]
 filteredPairs pairs transiting transited =
   pairs
-  & filter (uncurry (&&) . bimap (`elem` transiting) (`elem` transited)) 
+  & filter (uncurry (&&) . bimap (`elem` transiting) (`elem` transited))
 
 sextile, square, trine, opposition, conjunction :: Aspect
 conjunction = Aspect Conjunction 0 5 5
@@ -288,10 +290,10 @@ lunarAspects ins start end pos =
           crossB = toEclipticLongitude pos - EclipticLongitude angle
       crossesA <- moonCrossingBetween (getEclipticLongitude crossA) start end
       crossesB <- moonCrossingBetween (getEclipticLongitude crossB) start end
-      pure 
-        . map (PlanetaryTransit <<< toTransit aspectName angle) 
-        . nub 
-        . rights 
+      pure
+        . map (PlanetaryTransit <<< toTransit aspectName angle)
+        . nub
+        . rights
         $ [(,crossA) <$> crossesA, (,crossB) <$> crossesB]
 
     toTransit aspname angl (exactCrossingTime, exactCrossingLng) =
