@@ -26,7 +26,6 @@ import EclipticLongitude ( EclipticLongitude(..), (<->), toEclipticLongitude )
 import Data.Function
 import Query.EventTypes
 import Data.Foldable (foldMap')
-import Control.Category ((<<<))
 import Data.Either (rights)
 import Data.Tuple (swap)
 
@@ -272,26 +271,38 @@ selectLunarTransits start end natalEphemeris =
       if null transit then
         mempty
       else
-        pure $ Aggregate $ M.fromList [((Moon, ephePlanet pos), MergeSeq $ fromList transit)]
+        pure $ Aggregate $ M.fromList [((Moon, ephePlanet pos), MergeSeq . fromList . map PlanetaryTransit $ transit)]
+
+selectLunarCuspTransits :: JulianDayTT -> JulianDayTT -> [House]-> IO (Grouped (Planet, House) Event)
+selectLunarCuspTransits start end =
+  foldMap' mkLunarTransit
+  where
+    mkLunarTransit :: House -> IO (Grouped (Planet, House) Event)
+    mkLunarTransit pos = do
+      transit <- lunarAspects id start end pos 
+      if null transit then
+        mempty
+      else
+        pure $ Aggregate $ M.fromList [((Moon, pos), MergeSeq . fromList . map HouseTransit $ transit)]
+
 
 lunarAspects
   :: HasEclipticLongitude a
-  => (a -> Planet)
+  => (a -> b)
   -> JulianDayTT
   -> JulianDayTT
   -> a
-  -> IO [Event]
+  -> IO [Transit b]
 lunarAspects ins start end pos =
   foldMap' crossings aspects
   where
-    crossings :: Aspect -> IO [Event]
     crossings Aspect{aspectName, angle} = do
       let crossA = toEclipticLongitude pos + EclipticLongitude angle
           crossB = toEclipticLongitude pos - EclipticLongitude angle
       crossesA <- moonCrossingBetween (getEclipticLongitude crossA) start end
       crossesB <- moonCrossingBetween (getEclipticLongitude crossB) start end
       pure
-        . map (PlanetaryTransit <<< toTransit aspectName angle)
+        . map (toTransit aspectName angle)
         . nub
         . rights
         $ [(,crossA) <$> crossesA, (,crossB) <$> crossesB]

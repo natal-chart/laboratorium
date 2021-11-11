@@ -94,8 +94,9 @@ natalAlmanac geo birth start end = do
 
       -- TODO: also want lunar transits for house cusps
       lun <- selectLunarTransits startTT endTT natalEphe
+      lunCusps <- selectLunarCuspTransits startTT endTT (filterHouses houses)
 
-      pure $ cross <> trns <> cuspTrns <> collapse lun
+      pure $ cross <> trns <> cuspTrns <> collapse lun <> collapse lunCusps
   where
     -- all planets are considered, except a transiting Moon
     defaultNatalPairings = filteredPairs allPairs (tail defaultPlanets) defaultPlanets
