@@ -8,8 +8,7 @@ are provided in the `ephe` directory.
 Generate charts for a given interval, in reference to a planet (or planets).
 
 ```sh
-[nix-shell:~/code/natalch.art/laboratorium]$ time cabal new-run laboratorium  -- charts --help
-Up to date
+[nix-shell:~/code/natalch.art/laboratorium]$ cabal new-run laboratorium  -- charts --help
 Usage: laboratorium charts (-d|--date ARG) (-s|--start ARG) (-e|--end ARG)
                            --transited ARG --transiting ARG (-c|--chart ARG) 
                            [--debug]
