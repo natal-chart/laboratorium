@@ -1,182 +1,85 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE TupleSections #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE OverloadedLists #-}
 
 module Query.Transit where
 
 import Data.Sequence (Seq ((:<|)), fromList)
-import qualified Data.Sequence as S
-import qualified Streaming.Prelude as St
 import qualified Data.Map as M
 import SwissEphemeris
+    ( HasEclipticLongitude(getEclipticLongitude),
+      Planet(Pluto, Moon, Mercury, Venus, Sun, Mars, Jupiter, MeanApog,
+             Saturn, MeanNode, Chiron, Uranus, Neptune), JulianDayTT, moonCrossingBetween, mkJulianDay, SingTimeStandard (STT), JulianDay (getJulianDay) )
 import SwissEphemeris.Precalculated
+    ( planetEphe,
+      Ephemeris(epheDate, ephePositions),
+      EphemerisPosition(epheLongitude, epheSpeed, ephePlanet) )
 import Query.Common
-import Control.Lens (over, Each (each))
+    ( Station(..), isRelativelyStationary, concatForEach )
+import Control.Lens (over, Each (each), Bifunctor (bimap))
 import Data.Fixed (mod')
 import Control.Monad (guard, join)
 import Data.List (tails, nub)
 import Control.Applicative (liftA2)
-import Query.Aggregate
-import Query.Streaming
-import Control.Category ((>>>))
-import EclipticLongitude
+import Query.Aggregate ( Aggregate(Aggregate), singleton, Grouped, MergeSeq(..) )
+import EclipticLongitude ( EclipticLongitude(..), (<->), toEclipticLongitude )
+import Data.Function
+import Query.EventTypes
 import Data.Foldable (foldMap')
 import Data.Either (rights)
+import Data.Tuple (swap)
 
-type EphemerisPoint = (JulianDayTT, EphemerisPosition Double)
-
-data Relation
-  = Below
-  | Crossed
-  | Above
-  deriving (Eq, Show)
-
-data TransitPhaseName
-  = ApplyingDirect
-  | ApplyingRetrograde
-  | TriggeredDirect
-  | TriggeredRetrograde
-  | SeparatingDirect
-  | SeparatingRetrograde
-  deriving (Eq, Show)
-
-data AspectName
-  = Sextile
-  | Square
-  | Trine
-  | Opposition
-  | Conjunction
-  deriving (Eq, Enum, Show)
-
-data Aspect = Aspect {
-  aspectName :: !AspectName
-, angle :: !Double
-, orbApplying :: !Double
-, orbSeparating :: !Double
-} deriving (Eq, Show)
-
-data TransitPhase = TransitPhase {
-  phaseName :: !TransitPhaseName
-, phaseStarts :: !JulianDayTT
-, phaseEnds :: !JulianDayTT
-} deriving (Eq, Show)
-
-instance Merge TransitPhase where
-  x `merge` y =
-    if phaseName x == phaseName y then
-      Merge merged
-    else
-      KeepBoth
-    where
-      merged = x {
-        phaseEnds = phaseEnds y
-      }
-
-data Transit = Transit {
-  aspect :: !AspectName
-, lastPhase :: !TransitPhaseName
-, transitAngle :: !Double
-, transitOrb :: !Double
-, transitStarts :: !JulianDayTT
-, transitEnds :: !JulianDayTT
-, transitProgress :: !(S.Seq (JulianDayTT, Double))
-, transitPhases :: !(MergeSeq TransitPhase)
-, transitIsExact :: !(Maybe JulianDayTT)
-} deriving (Show)
-
-instance Merge Transit where
-  x `merge` y =
-    if aspect x == aspect y then
-      Merge merged
-    else
-      KeepBoth
-    where
-      merged = x {
-          lastPhase = lastPhase y,
-          transitEnds = transitEnds y,
-          transitAngle = transitAngle y,
-          transitOrb = transitOrb y,
-          transitProgress = transitProgress x <> transitProgress y,
-          transitPhases = transitPhases x `union` transitPhases y
-        }
-
-type TransitMap = Grouped (Planet, Planet) Transit
-
-sextile, square, trine, opposition, conjunction :: Aspect
-conjunction = Aspect Conjunction 0 5 5
-sextile = Aspect Sextile 60 5 5
-square = Aspect Square 90 5 5
-trine = Aspect Trine 120 5 5
-opposition = Aspect Opposition 180 5 5
-
--- | Aspects to consider, arranged in a "cycle":
--- as soon as one is determined, no need to seek the others.
-aspects :: [Aspect]
-aspects = [conjunction, sextile, square, trine, opposition]
-
-interplanetaryTransits :: Monad m => St.Stream (St.Of (Ephemeris Double)) m b -> m (St.Of TransitMap b)
-interplanetaryTransits =
-  ephemerisWindows 2
-  >>> St.foldMap mapTransits
-
-selectTransits :: Monad m => [(Planet, Planet)] -> St.Stream (St.Of (Ephemeris Double)) m b -> m (St.Of TransitMap b)
-selectTransits selectedTransits =
-  ephemerisWindows 2 >>> St.foldMap (mapTransits' selectedTransits)
-
-selectNatalTransits :: Monad m => Ephemeris Double -> [(Planet, Planet)] -> St.Stream (St.Of (Ephemeris Double)) m b -> m (St.Of TransitMap b)
-selectNatalTransits natalEphemeris selectedTransits =
-  ephemerisWindows 2 >>> St.foldMap (mapNatalTransits natalEphemeris selectedTransits)
-
-mapTransits' :: [(Planet, Planet)] -> Seq (Ephemeris Double) -> TransitMap
-mapTransits' chosenPairs (day1Ephe :<| day2Ephe :<| _) =
+getTransits :: [(Planet, Planet)] -> Seq (Ephemeris Double) -> Grouped (Planet, Planet) Event
+getTransits chosenPairs (day1Ephe :<| day2Ephe :<| _) =
   concatForEach chosenPairs $ \pair@(planet1, planet2) ->
       let planet1Ephe1 = (epheDate day1Ephe,) <$> planetEphe planet1 day1Ephe
           planet1Ephe2 = (epheDate day2Ephe,) <$> planetEphe planet1 day2Ephe
           planet2Ephe2 = (epheDate day2Ephe,) <$> planetEphe planet2 day2Ephe
           planet1Ephes = liftA2 (,) planet1Ephe1 planet1Ephe2
-          transit' = join $ mkTransit <$> planet1Ephes <*> planet2Ephe2
+          transit' = join $ mkTransit ephePlanet <$> planet1Ephes <*> planet2Ephe2
       in case transit' of
         Nothing -> mempty
-        Just transit -> Aggregate $ M.fromList [(pair, singleton transit)]
+        Just transit -> Aggregate $ M.fromList [(pair, singleton $ PlanetaryTransit transit)]
 
-mapTransits' _ _ = mempty
+getTransits _ _ = mempty
 
-mapTransits :: Seq (Ephemeris Double) -> TransitMap
-mapTransits = mapTransits' uniquePairs
 
-mapNatalTransits :: Ephemeris Double -> [(Planet, Planet)] -> Seq (Ephemeris Double) -> TransitMap
-mapNatalTransits natalEphemeris chosenPairs (day1Ephe :<| day2Ephe :<| _) =
+getNatalTransits :: Ephemeris Double -> [(Planet, Planet)] -> Seq (Ephemeris Double) -> Grouped (Planet, Planet) Event
+getNatalTransits natalEphemeris chosenPairs (day1Ephe :<| day2Ephe :<| _) =
   concatForEach chosenPairs $ \pair@(planet1, planet2) ->
       let planet1Ephe1 = (epheDate day1Ephe,) <$> planetEphe planet1 day1Ephe
           planet1Ephe2 = (epheDate day2Ephe,) <$> planetEphe planet1 day2Ephe
 
           planet2Ephe2 = (epheDate day2Ephe,) <$> staticPosition (planetEphe planet2 natalEphemeris)
           planet1Ephes = liftA2 (,) planet1Ephe1 planet1Ephe2
-          transit' = join $ mkTransit <$> planet1Ephes <*> planet2Ephe2
+          transit' = join $ mkTransit ephePlanet <$> planet1Ephes <*> planet2Ephe2
       in case transit' of
         Nothing -> mempty
-        Just transit -> Aggregate $ M.fromList [(pair, singleton transit)]
+        Just transit -> Aggregate $ M.fromList [(pair, singleton $ PlanetaryTransit transit)]
 
-mapNatalTransits _ _ _ = mempty
+getNatalTransits _ _ _ = mempty
+
+getCuspTransits :: [House] -> [Planet] -> Seq (Ephemeris Double) -> Grouped (Planet, House) Event
+getCuspTransits cusps chosenPlanets (day1Ephe :<| day2Ephe :<| _) =
+  concatForEach (cProduct chosenPlanets cusps )$ \pair@(planet1, cusp) ->
+      let planet1Ephe1 = (epheDate day1Ephe,) <$> planetEphe planet1 day1Ephe
+          planet1Ephe2 = (epheDate day2Ephe,) <$> planetEphe planet1 day2Ephe
+
+          planet2Ephe2 = Just (epheDate day2Ephe,cusp)
+          planet1Ephes = liftA2 (,) planet1Ephe1 planet1Ephe2
+          transit' = join $ mkTransit id <$> planet1Ephes <*> planet2Ephe2
+      in case transit' of
+        Nothing -> mempty
+        Just transit -> Aggregate $ M.fromList [(pair, singleton $ HouseTransit transit)]
+
+getCuspTransits _ _ _ = mempty
+
+cProduct :: [Planet] -> [a] -> [(Planet, a)]
+cProduct ps as = [(p,a) | p <- ps, a <- as]
 
 staticPosition :: Maybe (EphemerisPosition Double) -> Maybe (EphemerisPosition Double)
 staticPosition (Just pos) = Just $ pos{epheSpeed = 0.0}
 staticPosition Nothing = Nothing
-
-selectLunarTransits :: JulianDayTT -> JulianDayTT -> Ephemeris Double -> IO TransitMap
-selectLunarTransits start end natalEphemeris =
-  foldMap' mkLunarTransit (ephePositions natalEphemeris)
-  where
-    mkLunarTransit :: EphemerisPosition Double -> IO TransitMap
-    mkLunarTransit pos = do
-      transit <- lunarAspects start end pos --(EclipticLongitude . epheLongitude $ pos)
-      if null transit then
-        mempty
-      else
-        pure $ Aggregate $ M.fromList [((Moon, ephePlanet pos), MergeSeq $ fromList transit)]
 
 -- | All distinct pairings of  planets, with the one that's faster
 -- on average as the first of the pair, always.
@@ -222,30 +125,52 @@ defaultPlanets =
       , Pluto
       ]
 
--- All pairs, including a planet with itself -- useful for natal transits
+-- All pairs, including a planet with itself and slow planets transiting fast ones (vs the usual,
+-- fast ones over slow ones) -- useful for natal transits
 allPairs :: [(Planet, Planet)]
 allPairs =
-  uniquePairs <> selfPairs
+  uniquePairs <> map swap uniquePairs <> selfPairs
   where
     selfPairs = zip defaultPlanets defaultPlanets
 
+filteredPairs :: [(Planet, Planet)] -> [Planet] -> [Planet] -> [(Planet, Planet)]
+filteredPairs pairs transiting transited =
+  pairs
+  & filter (uncurry (&&) . bimap (`elem` transiting) (`elem` transited))
+
+sextile, square, trine, opposition, conjunction :: Aspect
+conjunction = Aspect Conjunction 0 5 5
+sextile = Aspect Sextile 60 5 5
+square = Aspect Square 90 5 5
+trine = Aspect Trine 120 5 5
+opposition = Aspect Opposition 180 5 5
+
+-- | Aspects to consider, arranged in a "cycle":
+-- as soon as one is determined, no need to seek the others.
+aspects :: [Aspect]
+aspects = [conjunction, sextile, square, trine, opposition]
+
 
 mkTransit
-  :: (EphemerisPoint, EphemerisPoint)
+  :: HasEclipticLongitude a
+  =>  (a -> b)
+  -> (EphemerisPoint, EphemerisPoint)
   -- ^ planet 1 at days 1->2
-  -> EphemerisPoint
+  -> (JulianDayTT, a)
   -- ^ planet 2 at day 2
-  -> Maybe Transit
-mkTransit transiting@((t1, p11), (t2, p12)) _transited@(_t2', p22)
+  -> Maybe (Transit b)
+mkTransit ins transiting@((t1, p11), (t2, p12)) (_t22, p22)
   = do
-    let (before, after, transitedPos) = (epheLongitude p11, epheLongitude p12, epheLongitude p22)
+    let (before, after, transitedPos) = (epheLongitude p11, epheLongitude p12, getEclipticLongitude p22)
     (aspectName, angle', orb', meets) <- determineAspect after transitedPos
-    let (before', after', ref) = normalize (before, after, meets)
+    -- TODO(luis) use diffdeg2n:
+    -- https://github.com/lfborjas/swiss-ephemeris/blob/7edfb51ed12b301ffb44811c472f864a49cc7f16/csrc/swephlib.c#L3824 
+    let (before', after', ref) = normalize (before, after, getEclipticLongitude meets)
         station = movement transiting
         rel = relation before' after' ref
         phase = transitPhase station rel
         phaseInfo = singleton $ TransitPhase phase t1 t2
-    pure $ Transit aspectName phase angle' orb' t1 t2 [(t2,orb')] phaseInfo Nothing
+    pure $ Transit aspectName (ephePlanet p11) (ins p22) phase angle' orb' t1 t2 [(t2,orb')] phaseInfo mempty meets
 
 
 -------------------------------------------------------------------------------
@@ -299,11 +224,11 @@ transitPhase StationaryRetrograde Crossed = TriggeredRetrograde
 transitPhase Retrograde Below = SeparatingRetrograde
 transitPhase StationaryRetrograde Below = SeparatingRetrograde
 
-determineAspect :: Double -> Double -> Maybe (AspectName, Double, Double, Double)
+determineAspect :: Double -> Double -> Maybe (AspectName, Double, Double, EclipticLongitude)
 determineAspect p1 p2 =
   headMaybe $ aspectCycle (EclipticLongitude p1) (EclipticLongitude p2)
 
-aspectCycle :: EclipticLongitude -> EclipticLongitude -> [(AspectName, Double, Double, Double)]
+aspectCycle :: EclipticLongitude -> EclipticLongitude -> [(AspectName, Double, Double, EclipticLongitude)]
 aspectCycle p1 p2 = do
   asp <- aspects
   let dist = p1 <-> p2
@@ -312,9 +237,9 @@ aspectCycle p1 p2 = do
       crossA = p2 + EclipticLongitude theta
       crossB = p2 - EclipticLongitude theta
       crossesAt =
-        if p1 <-> crossA <= orb then crossA else crossB
+        if p1 <-> crossA <= p1 <-> crossB then crossA else crossB
   guard $ abs (theta - dist) <= maxOrb asp
-  pure (aspectName asp, dist, orb, getEclipticLongitude crossesAt)
+  pure (aspectName asp, dist, orb, crossesAt)
 
 headMaybe :: [a] -> Maybe a
 headMaybe [] = Nothing
@@ -336,58 +261,66 @@ normalize points@(p1, p2, _ref)
   | abs (p2 - p1) > 30 = over each (+90) points
   | otherwise = points
 
--- from: https://stackoverflow.com/questions/9505862/shortest-distance-between-two-degree-marks-on-a-circle/9505991#9505991
--- 180.0 - std::fabs(std::fmod(std::fabs(first - second), 360.0) - 180.0)
-circleDistance :: Double -> Double -> Double
-circleDistance a b =
-  180 - abs(abs(a - b) `mod'` 360 - 180)
+selectLunarTransits :: JulianDayTT -> JulianDayTT -> Ephemeris Double -> IO (Grouped (Planet, Planet) Event)
+selectLunarTransits start end natalEphemeris =
+  foldMap' mkLunarTransit (ephePositions natalEphemeris)
+  where
+    mkLunarTransit :: EphemerisPosition Double -> IO (Grouped (Planet, Planet) Event)
+    mkLunarTransit pos = do
+      transit <- lunarAspects ephePlanet start end pos --(EclipticLongitude . epheLongitude $ pos)
+      if null transit then
+        mempty
+      else
+        pure $ Aggregate $ M.fromList [((Moon, ephePlanet pos), MergeSeq . fromList . map PlanetaryTransit $ transit)]
 
--------------------------------------------------------------------------------
--- LUNAR ASPECTS
--------------------------------------------------------------------------------
+selectLunarCuspTransits :: JulianDayTT -> JulianDayTT -> [House]-> IO (Grouped (Planet, House) Event)
+selectLunarCuspTransits start end =
+  foldMap' mkLunarTransit
+  where
+    mkLunarTransit :: House -> IO (Grouped (Planet, House) Event)
+    mkLunarTransit pos = do
+      transit <- lunarAspects id start end pos 
+      if null transit then
+        mempty
+      else
+        pure $ Aggregate $ M.fromList [((Moon, pos), MergeSeq . fromList . map HouseTransit $ transit)]
 
--- | We use a different approach to lunar aspects: since the moon can move up to
--- 15 degrees per day, iterating over all ephemeris in an interval in day-wise steps
--- is too coarse: an entire applying/trigger/separating cycle can fall through!
--- Instead, we use the `moonCrossing` function provided by SwissEphemeris, which
--- does somewhat more clever interpolation with non-precalc ephemeris to find the
--- next time the moon will cross a longitude -- made possible by the fact that the Moon
--- never presents retrograde motion from a geocentric perspective. By the same token,
--- once we know when the aspect is triggered exactly, we can estimate a rough application/
--- separation interval without consulting any ephemeris. We incur many more IO actions here,
--- so lunar aspects should be reserved to daily/montly use cases, vs. heavier weight yearly
--- use cases that would not only do a lot of IO, also end up with a lot of results (since
--- in a given month, the Moon is likely to present almost every aspect.)
---
--- A similar function could be written for the Sun, with the appropriate mean solar speed.
+
 lunarAspects
   :: HasEclipticLongitude a
-  => JulianDayTT
+  => (a -> b)
+  -> JulianDayTT
   -> JulianDayTT
   -> a
-  -> IO [Transit]
-lunarAspects start end pos =
+  -> IO [Transit b]
+lunarAspects ins start end pos =
   foldMap' crossings aspects
   where
-    crossings :: Aspect -> IO [Transit]
     crossings Aspect{aspectName, angle} = do
       let crossA = toEclipticLongitude pos + EclipticLongitude angle
           crossB = toEclipticLongitude pos - EclipticLongitude angle
       crossesA <- moonCrossingBetween (getEclipticLongitude crossA) start end
       crossesB <- moonCrossingBetween (getEclipticLongitude crossB) start end
-      pure . map (toTransit aspectName angle) . nub . rights $ [crossesA, crossesB]
+      pure
+        . map (toTransit aspectName angle)
+        . nub
+        . rights
+        $ [(,crossA) <$> crossesA, (,crossB) <$> crossesB]
 
-    toTransit aspname angl exactCrossingTime =
+    toTransit aspname angl (exactCrossingTime, exactCrossingLng) =
       Transit {
         aspect = aspname,
+        transiting = Moon,
+        transited = ins pos,
         lastPhase = ApplyingDirect,
         transitAngle = angl,
         transitOrb = 0,
         transitStarts = estimateStart exactCrossingTime,
-        transitIsExact = Just exactCrossingTime,
+        transitIsExact = [exactCrossingTime],
         transitEnds = estimateEnd exactCrossingTime,
         transitProgress = mempty,
-        transitPhases = mempty
+        transitPhases = mempty,
+        transitCrosses = exactCrossingLng
       }
     -- from:
     -- https://github.com/aloistr/swisseph/blob/40a0baa743a7c654f0ae3331c5d9170ca1da6a6a/sweph.c#L8494

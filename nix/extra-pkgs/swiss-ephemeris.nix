@@ -6,8 +6,8 @@ mkDerivation {
   version = "1.4.0.0";
   src = fetchgit {
     url = "https://github.com/lfborjas/swiss-ephemeris";
-    sha256 = "16kyx48mbq9ywmgvcvajajf6kv2x7g9r9srl3wrjn8p8czvnr616";
-    rev = "338bbb5ba39614d93b1a8f752bbb3933bd57cec1";
+    sha256 = "0qf5pi7mpa9b66px30b8bnp3b4cdi8a0f22hhyhhgvd60whawjxd";
+    rev = "c92c3c14d21d18adad902456ef71ed34f7ef0d92";
     fetchSubmodules = true;
   };
   libraryHaskellDepends = [ base time vector ];

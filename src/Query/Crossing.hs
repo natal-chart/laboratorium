@@ -3,6 +3,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE TypeFamilies #-}
 module Query.Crossing where
 
 import SwissEphemeris
@@ -12,72 +13,38 @@ import qualified Data.Map as M
 import Data.Foldable (Foldable(toList))
 import Data.Maybe (mapMaybe)
 import Query.Aggregate
-import Streaming (Stream, Of)
-import qualified Streaming.Prelude as St
-import Control.Category ((>>>))
-import Query.Streaming
 import Query.Common (concatForEach)
+import Query.EventTypes
 
--- TODO: remove this?
-data SimplePlanetStation = Retrograde | Direct
-  deriving (Eq, Show)
-
-data Crossing a = Crossing
-  { crossingEnters :: !(Maybe JulianDayTT)
-  , crossingExits :: !(Maybe JulianDayTT)
-  , crossingSubject :: !a
-  , crossingPlanetEntered :: !(Maybe SimplePlanetStation)
-  , crossingPlanetExited :: !(Maybe SimplePlanetStation)
-  } deriving (Show)
-
-instance Eq a => Merge (Crossing a) where
-  x `merge` y =
-    if crossingSubject x == crossingSubject y then
-      Merge merged
-    else
-      ReplaceL updated
-    where
-      merged = x {
-        crossingExits = crossingExits y,
-        crossingPlanetExited = crossingPlanetExited y
-      }
-      updated = x {
-        crossingExits = crossingEnters y,
-        crossingPlanetExited = crossingPlanetEntered y
-      }
-
-type CrossingMap a = Grouped Planet (Crossing a)
-
-crossings :: (Monad m, HasEclipticLongitude a) => [a] -> Stream (Of (Ephemeris Double)) m b -> m (Of (CrossingMap a) b)
-crossings degs =
-  ephemerisWindows 2 >>> St.foldMap (mapCrossings degs)
-
-mapCrossings :: HasEclipticLongitude a => [a] -> Seq (Ephemeris Double) -> CrossingMap a
-mapCrossings degreesToCross (pos1 :<| pos2 :<| _) =
+getCrossings' :: HasEclipticLongitude a => (Crossing a -> Event ) -> [Planet] -> [a] -> Seq (Ephemeris Double) -> Grouped Planet Event
+getCrossings' mkEvent selectedPlanets degreesToCross (pos1 :<| pos2 :<| _) =
   concatForEach (zip (toList $ ephePositions pos1) (toList $ ephePositions pos2)) $ \(p1, p2) ->
-    -- the Moon crosses most of the ecliptic every month, so it's not
-    -- really significant. The nodes do have a slower behavior, so maybe
-    -- I'll reinstate them.
-    if ephePlanet p1 `elem` [Moon, TrueNode, MeanNode] then
+    if ephePlanet p1 `notElem` selectedPlanets then
       mempty
     else
       Aggregate
         $ M.fromList
-        $ map (\c -> (ephePlanet p1, singleton c))
+        $ map (\c -> (ephePlanet p1, singleton $ mkEvent c))
         $ mapMaybe (mkCrossing (epheDate pos1, p1) (epheDate pos2, p2))
         degreesToCross
 
-mapCrossings _ _ = mempty
+getCrossings' _ _ _ _ = mempty
+
+getZodiacCrossings :: [Planet]-> [Zodiac] -> Seq (Ephemeris Double) -> Grouped Planet Event
+getZodiacCrossings = getCrossings' ZodiacIngress
+
+getHouseCrossings :: [Planet] -> [House] -> Seq (Ephemeris Double) -> Grouped Planet Event
+getHouseCrossings = getCrossings' HouseIngress 
 
 mkCrossing :: HasEclipticLongitude a => (JulianDayTT, EphemerisPosition Double) -> (JulianDayTT, EphemerisPosition Double) -> a -> Maybe (Crossing a)
-mkCrossing (d1, pos1) (_d2, pos2) toCross
+mkCrossing (d1, pos1) (d2, pos2) toCross
   | crossesDirect (epheLongitude pos1) (epheLongitude pos2) (getEclipticLongitude toCross) =
      Just $ Crossing {
-        crossingEnters = Just d1,
-        crossingExits = Nothing,
-        crossingSubject = toCross,
-        crossingPlanetEntered = Just Direct,
-        crossingPlanetExited = Nothing
+        crossingStarts = d1,
+        crossingEnds = d2,
+        crossingCrosses = toCross,
+        crossingPlanet = ephePlanet pos1,
+        crossingDirection = if epheSpeed pos2 < 0 then RetrogradeMotion  else DirectMotion
       }
   | otherwise = Nothing
 
@@ -94,3 +61,9 @@ crossesRetrograde p1 p2 toCross =
     p1 >= toCross && p2 < (toCross + 360)
   else
     p1 >= toCross && p2 < toCross
+
+westernZodiacSigns :: [Zodiac]
+westernZodiacSigns =
+  zipWith Zodiac [Aries .. Pisces] zodiacs
+  where
+    zodiacs = take 12 $ iterate (+ 30) 0
