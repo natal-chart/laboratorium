@@ -97,9 +97,11 @@ natalAlmanac geo birth start end = do
 
       pure $ cross <> trns <> cuspTrns <> collapse lun
   where
+    -- all planets are considered, except a transiting Moon
+    defaultNatalPairings = filteredPairs allPairs (tail defaultPlanets) defaultPlanets
     mkAlmanac n houses =
       (,,) <$> L.foldMap (getHouseCrossings defaultPlanets houses) collapse
-           <*> L.foldMap (getNatalTransits n chosenPairs) collapse
+           <*> L.foldMap (getNatalTransits n defaultNatalPairings) collapse
            <*> L.foldMap (getCuspTransits  (filterHouses houses) sansMoon) collapse
     filterHouses houses =
       houses & filter (houseName >>> (`elem` [I, X]))
@@ -111,6 +113,7 @@ natalAlmanac geo birth start end = do
 
 type EventExactDates = (Event, [UTCTime])
 
+-- | Return a list of relevant dates for an event: both start and exactitude
 eventDates :: TimeZone -> Event -> IO [(ZonedTime, Sq.Seq EventExactDates)]
 eventDates tz evt = do
   exactsUTC <- eventExactAt evt
@@ -122,11 +125,21 @@ eventDates tz evt = do
           exactsUTC
   pure $ zip (map (utcToZonedTime tz) uniqTimes) (repeat $ Sq.singleton (evt,exactsUTC))
 
+-- | Translate moments of exactitude of an event to repeat entries of it by
+-- each date of exactitude. Empty list if the event has no exactitude entries.
+eventExactDates :: TimeZone -> Event -> IO [(ZonedTime, Sq.Seq EventExactDates)]
+eventExactDates tz evt = do
+  exactsUTC <- eventExactAt evt
+  pure $ zip (map (utcToZonedTime tz) exactsUTC) (repeat $ Sq.singleton (evt,exactsUTC))
+
+
 -- | Given a timezone and a sequence of events, index them by day (in the given timezone,)
--- with entries for the event's start, moments of exactitude, and end.
 indexByDay :: TimeZone -> Sq.Seq Event -> IO (M.Map Day (Sq.Seq EventExactDates))
 indexByDay tz events =
-  foldMap' (eventDates tz) events
+  -- NOTE(luis) limiting ourselves only to events with exactitude
+  -- rules out any "in progress" events such as slow-planet transits;
+  -- gotta think that one through a little bit more.
+  foldMap' (eventExactDates tz) events
     <&> map (first getDay)
     <&> M.fromListWith (<>)
   where
@@ -169,7 +182,14 @@ findRetrogrades start end = do
   pure $ collapse retro
 
 findNatalTransits :: GeographicPosition -> ZonedTime -> UTCTime -> UTCTime -> IO (Seq Event)
-findNatalTransits = error "not implemented"
+findNatalTransits _geoPos bday start end = do
+  Just julianBday <- toJulianDay . zonedTimeToUTC $ bday
+  ephe <- ephemeris start end
+  Right natalEphe <- readEphemerisEasy False julianBday
+  transits :> _ <- 
+    ephe & S.foldMap (getNatalTransits natalEphe chosenPairs)
+  pure $ collapse transits
+  
 
 findLunarTransits :: UTCTime -> UTCTime -> IO (Seq Event)
 findLunarTransits = error "not implemented"
