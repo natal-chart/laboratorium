@@ -6,8 +6,11 @@ import Query.EventTypes
 import Data.Time
 import SwissEphemeris
 import Data.Function
-import Data.Foldable
+import Data.Foldable ( Foldable(foldMap', toList) )
 import Query.Eclipse (getEclipseDate)
+import Data.List.NonEmpty (NonEmpty ((:|)), fromList)
+import Data.Either
+import Data.List (intersperse, nub)
 
 -- | Get all moments of exactitude in the span of an @Event@; in reality, 
 -- only Transits are liable to have more than one moment of exactitude (if they
@@ -34,8 +37,8 @@ eventExactAt (HouseIngress xn) = crossingExactAt xn
 
 crossingExactAt :: HasEclipticLongitude a => Crossing a -> IO [UTCTime]
 crossingExactAt Crossing{crossingPlanet, crossingCrosses, crossingStarts, crossingEnds}=
-  crossingBetween crossingPlanet (getEclipticLongitude crossingCrosses) crossingStarts crossingEnds
-  >>= crossingAsList
+  allCrossingsBetween crossingPlanet (getEclipticLongitude crossingCrosses) crossingStarts crossingEnds
+  >>= crossingsAsList
 
 transitExactAt :: Transit a -> IO [UTCTime]
 transitExactAt Transit{transitPhases, transitCrosses, transiting, transitIsExact} =
@@ -50,14 +53,21 @@ transitExactAt Transit{transitPhases, transitCrosses, transiting, transitIsExact
       & foldMap' triggeredAt
   where
     triggeredAt TransitPhase{phaseStarts, phaseEnds} = do
-      crossingBetween transiting (getEclipticLongitude transitCrosses) phaseStarts phaseEnds
-      >>= crossingAsList
+      allCrossingsBetween transiting (getEclipticLongitude transitCrosses) phaseStarts phaseEnds
+      >>= crossingsAsList
 
 crossingAsList :: Either String JulianDayTT -> IO [UTCTime]
 crossingAsList crossesAt = do
   case crossesAt of
     Left _e -> pure []
     Right crossesAtTT -> mapM fromJulianDay [crossesAtTT]
+
+crossingsAsList :: Either String (NonEmpty JulianDayTT) -> IO [UTCTime]
+crossingsAsList crossesAt = do
+  case crossesAt of
+    Left _e -> pure []
+    Right crossingsAtTT -> mapM fromJulianDay $ toList crossingsAtTT
+
 
 
 -- Get the moment an event starts at, in UTC
@@ -79,3 +89,38 @@ eventEndsAt (PlanetaryTransit evt) = fromJulianDay $ transitEnds evt
 eventEndsAt (HouseTransit evt) = fromJulianDay $ transitEnds evt
 eventEndsAt (ZodiacIngress evt) = fromJulianDay $ crossingEnds evt
 eventEndsAt (HouseIngress evt) = fromJulianDay $ crossingEnds evt
+
+-- | Given a @Planet@, a longitude it crosses, and a start and end
+-- @JulianDay@s that may contain /one/ change of direction, 
+-- find the one or two moments the planet crosses the given longitude,
+-- from a geocentric perspective (retrogrades are taken into account.)
+-- 
+-- _NOTE_: works best when the interval given is both short and known
+-- to contain at least one crossing. Unlike 'crossingBetween', this 
+-- function sacrifices a bit of performance (has to determine if a change
+-- of direction happens) for accuracy: if the planet changes direction within
+-- the interval, it /may/ cross over the given longitude a second time,
+-- hence the @NonEmpty@ success case, vs. a single @JulianDay@.
+allCrossingsBetween
+  :: SingTSI ts
+  => Planet
+  -> Double
+  -> JulianDay ts
+  -> JulianDay ts
+  -> IO (Either String (NonEmpty (JulianDay ts)))
+allCrossingsBetween planet toCross start end = do
+  dirChange <- directionChangeBetween planet start end
+  case dirChange of
+    Left _noChange -> do
+      onlyCrossing <- crossingBetween planet toCross start end
+      -- NOTE(luis) in >= base-4.15, we'll get:
+      -- `pure $ singleton <$> onlyCrossing`
+      pure $ fmap (:| []) onlyCrossing
+    Right (changesAt, _dir) -> do
+      firstCrossing  <- crossingBetween planet toCross start changesAt
+      secondCrossing <- crossingBetween planet toCross changesAt end
+      let (errors, crossings) = partitionEithers [firstCrossing, secondCrossing]
+      if null crossings then
+        pure . Left . mconcat $ intersperse ", " errors
+      else
+        pure . Right . fromList . nub $ crossings
